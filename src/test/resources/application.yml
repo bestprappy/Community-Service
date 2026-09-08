@@ -22,3 +22,14 @@ spring:
 eureka:
   client:
     enabled: false
+
+logging:
+  level:
+    root: WARN
+    org.springframework: WARN
+
+management:
+  tracing:
+    export:
+      zipkin:
+        enabled: false

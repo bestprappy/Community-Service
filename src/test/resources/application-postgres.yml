@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: ${COMMUNITY_TEST_DB_URL}
+    driver-class-name: org.postgresql.Driver
+    username: ${COMMUNITY_TEST_DB_USERNAME:community_test}
+    password: ${COMMUNITY_TEST_DB_PASSWORD:community_test}
+  flyway:
+    enabled: true
+    schemas: [social, notif, media]
+    default-schema: social
+    create-schemas: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
