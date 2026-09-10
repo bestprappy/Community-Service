@@ -19,9 +19,17 @@ public class GroupContentService {
     private final GroupFlairRepository flairs;
     private final GroupResourceRepository resources;
     private final GroupViewService views;
+    private final GroupMediaRepository media;
+    private final com.navio.communityservice.media.GroupPictureService pictures;
     @Transactional
     public GroupDetailResponse updateProfile(String slug, UUID userId, UpdateGroupProfileRequest r) {
-        Group g = moderated(slug, userId);
+        Group g = access.lock(slug, userId);
+        access.requireContentEditor(g, userId);
+        if (r.has("name")) {
+            access.requireOwner(g, userId);
+            g.setName(GroupValues.required(r.getName(), "name"));
+        }
+        g.setUpdatedAt(Instant.now());
         GroupProfile p = profiles.findById(g.getId()).orElseThrow();
         if (r.has("description")) g.setDescription(GroupValues.required(r.getDescription(), "description"));
         if (r.has("country")) g.setCountry(r.getCountry() == null ? null : r.getCountry().strip());
@@ -37,8 +45,19 @@ public class GroupContentService {
             if (r.getSummary() == null) throw GroupException.invalid("summary cannot be null");
             p.setSummary(r.getSummary().strip());
         }
-        if (r.has("bannerUrl")) p.setBannerUrl(r.getBannerUrl());
-        if (r.has("bannerMediaId")) p.setBannerMediaId(r.getBannerMediaId());
+        if (r.has("bannerUrl") && r.getBannerUrl() != null) {
+            throw GroupException.invalid("Upload a picture through the banner endpoint instead of an external URL");
+        }
+        if (r.has("bannerMediaId") && r.getBannerMediaId() != null) {
+            var asset = media.findById(r.getBannerMediaId()).filter(m -> g.getId().equals(m.getGroupId())
+                    && userId.equals(m.getUploadedByUserId())).orElseThrow(() -> GroupException.invalid("Picture must belong to this group and caller"));
+            if (r.has("bannerUrl")) throw GroupException.invalid("Supply bannerMediaId without bannerUrl");
+            p.setBannerMediaId(asset.getId());
+            p.setBannerUrl(pictures.bannerUrl(slug));
+        } else if (r.has("bannerMediaId") || r.has("bannerUrl")) {
+            p.setBannerMediaId(null);
+            p.setBannerUrl(null);
+        }
         return views.detail(g, userId);
     }
     @Transactional
@@ -80,6 +99,7 @@ public class GroupContentService {
     private Group moderated(String slug, UUID userId) {
         Group g = access.lock(slug, userId);
         access.requireModerator(g.getId(), userId);
+        if ("archived".equals(g.getStatus())) throw GroupException.conflict("Archived groups are read-only");
         g.setUpdatedAt(Instant.now());
         return g;
     }

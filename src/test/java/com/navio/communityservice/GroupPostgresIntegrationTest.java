@@ -17,6 +17,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /** Uses an explicitly supplied disposable PostgreSQL database; no H2 substitutions or extra dependencies. */
@@ -38,7 +39,7 @@ class GroupPostgresIntegrationTest {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String body = "{\"name\":\"  Thailand EV Charging " + suffix + "  \",\"description\":\"EV charging tips\","
                 + "\"country\":\"Thailand\",\"places\":[\" Bangkok \",\"\",\"Bangkok\"],\"tags\":[\"ev\"]}";
-        var result = mvc.perform(post("/v1/groups").header("X-User-Id", a).contentType(MediaType.APPLICATION_JSON).content(body))
+        var result = mvc.perform(post("/v1/groups").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.memberCount").value(1))
                 .andExpect(jsonPath("$.role").value("admin")).andExpect(jsonPath("$.joined").value(true))
                 .andExpect(jsonPath("$.moderatorIds[0]").value(a.toString())).andExpect(jsonPath("$.places.length()").value(1))
@@ -54,41 +55,41 @@ class GroupPostgresIntegrationTest {
         return json.writeValueAsString(Map.of("userIds", ids));
     }
     void join(UUID user) throws Exception {
-        mvc.perform(post(path + "/members/me").header("X-User-Id", user)).andExpect(status().isOk());
+        mvc.perform(post(path + "/members/me").with(jwt().jwt(j -> j.subject(user.toString())))).andExpect(status().isOk());
     }
     @Test void requestedWorkflowEndToEnd() throws Exception {
         mvc.perform(get(path)).andExpect(status().isOk()).andExpect(jsonPath("$.joined").value(false))
                 .andExpect(jsonPath("$.muted").value(false)).andExpect(jsonPath("$.role").isEmpty());
         join(b); join(b);
-        mvc.perform(put(path + "/moderators").header("X-User-Id", a).contentType(MediaType.APPLICATION_JSON).content(moderators(a,b,b)))
+        mvc.perform(put(path + "/moderators").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON).content(moderators(a,b,b)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.moderatorIds.length()").value(2))
                 .andExpect(jsonPath("$.memberCount").value(2)).andExpect(jsonPath("$.role").value("admin"));
-        mvc.perform(put(path + "/moderators").header("X-User-Id", a).contentType(MediaType.APPLICATION_JSON).content(moderators(b)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("member"))
-                .andExpect(jsonPath("$.moderatorIds[0]").value(b.toString()));
-        mvc.perform(put(path + "/moderators").header("X-User-Id", b).contentType(MediaType.APPLICATION_JSON).content(moderators(b,c)))
-                .andExpect(status().isBadRequest());
+        mvc.perform(put(path + "/moderators").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON).content(moderators(b)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("admin"))
+                .andExpect(jsonPath("$.moderatorIds.length()").value(2));
+        mvc.perform(put(path + "/moderators").with(jwt().jwt(j -> j.subject(b.toString()))).contentType(MediaType.APPLICATION_JSON).content(moderators(b,c)))
+                .andExpect(status().isForbidden());
         assertThat(jdbc.queryForObject("select count(*) from social.group_memberships where group_id=? and user_id=?", Integer.class, groupId,c)).isZero();
-        mvc.perform(patch(path + "/members/me").header("X-User-Id", b).contentType(MediaType.APPLICATION_JSON).content("{\"muted\":true}"))
+        mvc.perform(patch(path + "/members/me").with(jwt().jwt(j -> j.subject(b.toString()))).contentType(MediaType.APPLICATION_JSON).content("{\"muted\":true}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.muted").value(true)).andExpect(jsonPath("$.joined").value(true))
                 .andExpect(jsonPath("$.memberCount").value(2));
         var before = json.readTree(mvc.perform(get(path)).andReturn().getResponse().getContentAsString());
-        var after = json.readTree(mvc.perform(patch(path + "/profile").header("X-User-Id", b).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"bannerUrl\":\"https://example.com/banner.jpg\"}"))
+        var after = json.readTree(mvc.perform(patch(path + "/profile").with(jwt().jwt(j -> j.subject(b.toString()))).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"summary\":\"Moderator summary\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        for (String field : List.of("name", "slug", "description", "summary")) assertThat(after.get(field)).isEqualTo(before.get(field));
-        mvc.perform(delete(path + "/members/me").header("X-User-Id", b)).andExpect(status().isConflict());
+        for (String field : List.of("name", "slug", "description")) assertThat(after.get(field)).isEqualTo(before.get(field));
+        mvc.perform(delete(path + "/members/me").with(jwt().jwt(j -> j.subject(a.toString())))).andExpect(status().isConflict());
         mvc.perform(get("/v1/groups/search").param("q", "ev charging")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[?(@.id == '"+groupId+"')]").isNotEmpty());
         mvc.perform(get("/v1/groups/search").param("q", "")).andExpect(status().isOk()).andExpect(jsonPath("$.content").isEmpty());
-        for (UUID user : List.of(a,b)) mvc.perform(get("/v1/groups/mine").header("X-User-Id", user)).andExpect(status().isOk())
+        for (UUID user : List.of(a,b)) mvc.perform(get("/v1/groups/mine").with(jwt().jwt(j -> j.subject(user.toString())))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(groupId.toString())).andExpect(jsonPath("$.content[0].joined").value(true));
         assertThat(jdbc.queryForObject("select member_count from social.groups where id=?", Integer.class, groupId)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("select moderator_ids = ARRAY[?]::uuid[] from social.group_profiles where group_id=?", Boolean.class,b,groupId)).isTrue();
+        assertThat(jdbc.queryForObject("select cardinality(moderator_ids) = 2 from social.group_profiles where group_id=?", Boolean.class,groupId)).isTrue();
     }
     @Test void realUniqueConstraintRollsBackDuplicateCreate() throws Exception {
         String name = jdbc.queryForObject("select name from social.groups where id=?", String.class, groupId);
-        mvc.perform(post("/v1/groups").header("X-User-Id", c).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/v1/groups").with(jwt().jwt(j -> j.subject(c.toString()))).contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(Map.of("name",name,"description","duplicate"))))
                 .andExpect(status().isConflict());
         assertThat(jdbc.queryForObject("select count(*) from social.groups where name=?",Integer.class,name)).isEqualTo(1);
@@ -100,42 +101,42 @@ class GroupPostgresIntegrationTest {
             var requests = List.of(get(path+"/members"),put(path+"/moderators").content(moderators(a)),
                     patch(path+"/profile").content("{}"),put(path+"/rules").content("{\"rules\":[]}"),
                     put(path+"/flairs").content("{\"flairs\":[]}"),put(path+"/resources").content("{\"resources\":[]}"));
-            for (var request : requests) mvc.perform(request.header("X-User-Id",user).header("X-User-Roles","ADMIN,MODERATOR")
+            for (var request : requests) mvc.perform(request.with(jwt().jwt(j -> j.subject(user.toString()))).header("X-User-Roles","ADMIN,MODERATOR")
                     .contentType(MediaType.APPLICATION_JSON)).andExpect(status().isForbidden());
         }
     }
     @Test void collectionsReplaceInOrderAndProfileCanClearNullableFields() throws Exception {
-        mvc.perform(put(path+"/rules").header("X-User-Id",a).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put(path+"/rules").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"rules\":[{\"title\":\" Be kind \",\"description\":\"Respect others\"},{\"title\":\"No spam\",\"description\":\"Stay relevant\"}]}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.rules[0].title").value("Be kind"))
                 .andExpect(jsonPath("$.rules[1].displayOrder").value(1));
-        mvc.perform(put(path+"/rules").header("X-User-Id",a).contentType(MediaType.APPLICATION_JSON).content("{\"rules\":[]}"))
+        mvc.perform(put(path+"/rules").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON).content("{\"rules\":[]}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.rules").isEmpty());
-        mvc.perform(put(path+"/flairs").header("X-User-Id",a).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put(path+"/flairs").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"flairs\":[{\"flairType\":\"post\",\"label\":\"EV\",\"tone\":\"ev\"},{\"flairType\":\"user\",\"label\":\"Driver\",\"tone\":\"reliable\"}]}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.postFlairs.length()").value(1)).andExpect(jsonPath("$.userFlairs.length()").value(1));
-        mvc.perform(put(path+"/resources").header("X-User-Id",a).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put(path+"/resources").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"resources\":[{\"label\":\"Map\",\"url\":\"https://example.com/map\"}]}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.resources[0].displayOrder").value(0));
-        mvc.perform(patch(path+"/profile").header("X-User-Id",a).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(patch(path+"/profile").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"country\":null,\"bannerUrl\":null,\"tags\":[\" uniquezephyr \",\"uniquezephyr\"]}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.country").isEmpty()).andExpect(jsonPath("$.tags.length()").value(1));
         mvc.perform(get("/v1/groups/search").param("q","uniquezephyr")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(groupId.toString()));
-        mvc.perform(patch(path+"/profile").header("X-User-Id",a).contentType(MediaType.APPLICATION_JSON).content("{\"description\":null}"))
+        mvc.perform(patch(path+"/profile").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON).content("{\"description\":null}"))
                 .andExpect(status().isBadRequest());
     }
     @Test void mineExcludesLeftAndBannedAndVisibilityIsEnforced() throws Exception {
         join(b);
-        mvc.perform(delete(path+"/members/me").header("X-User-Id",b)).andExpect(status().isOk()).andExpect(jsonPath("$.memberCount").value(1));
-        mvc.perform(delete(path+"/members/me").header("X-User-Id",b)).andExpect(status().isOk()).andExpect(jsonPath("$.memberCount").value(1));
-        mvc.perform(get("/v1/groups/mine").header("X-User-Id",b)).andExpect(status().isOk()).andExpect(jsonPath("$.content").isEmpty());
+        mvc.perform(delete(path+"/members/me").with(jwt().jwt(j -> j.subject(b.toString())))).andExpect(status().isOk()).andExpect(jsonPath("$.memberCount").value(1));
+        mvc.perform(delete(path+"/members/me").with(jwt().jwt(j -> j.subject(b.toString())))).andExpect(status().isOk()).andExpect(jsonPath("$.memberCount").value(1));
+        mvc.perform(get("/v1/groups/mine").with(jwt().jwt(j -> j.subject(b.toString())))).andExpect(status().isOk()).andExpect(jsonPath("$.content").isEmpty());
         jdbc.update("update social.group_memberships set state='banned' where group_id=? and user_id=?",groupId,b);
-        mvc.perform(post(path+"/members/me").header("X-User-Id",b)).andExpect(status().isForbidden());
+        mvc.perform(post(path+"/members/me").with(jwt().jwt(j -> j.subject(b.toString())))).andExpect(status().isForbidden());
         jdbc.update("update social.groups set status='hidden' where id=?",groupId);
         mvc.perform(get(path)).andExpect(status().isNotFound());
-        mvc.perform(get(path).header("X-User-Id",b)).andExpect(status().isNotFound());
-        mvc.perform(get(path).header("X-User-Id",a)).andExpect(status().isOk());
+        mvc.perform(get(path).with(jwt().jwt(j -> j.subject(b.toString())))).andExpect(status().isNotFound());
+        mvc.perform(get(path).with(jwt().jwt(j -> j.subject(a.toString())))).andExpect(status().isOk());
         mvc.perform(get("/v1/groups")).andExpect(status().isOk()).andExpect(jsonPath("$.content[?(@.id == '"+groupId+"')]").isEmpty());
         mvc.perform(get("/v1/groups/search").param("q","ev charging")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[?(@.id == '"+groupId+"')]").isEmpty());
@@ -180,14 +181,14 @@ class GroupPostgresIntegrationTest {
         var second = groups.create(a, new CreateGroupRequest(secondName,"EV charging",null,null,null));
         try {
             jdbc.update("update social.groups set is_official=true where id=?",groupId);
-            mvc.perform(get("/v1/groups").header("X-User-Id",a).param("size","1"))
+            mvc.perform(get("/v1/groups").with(jwt().jwt(j -> j.subject(a.toString()))).param("size","1"))
                     .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2))
                     .andExpect(jsonPath("$.content[0].id").value(groupId.toString()))
                     .andExpect(jsonPath("$.content[0].muted").value(true));
-            mvc.perform(get("/v1/groups/mine").header("X-User-Id",a).param("size","1"))
+            mvc.perform(get("/v1/groups/mine").with(jwt().jwt(j -> j.subject(a.toString()))).param("size","1"))
                     .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2))
                     .andExpect(jsonPath("$.content[0].id").value(second.id().toString()));
-            mvc.perform(get("/v1/groups/search").header("X-User-Id",a).param("q","ev charging").param("size","1"))
+            mvc.perform(get("/v1/groups/search").with(jwt().jwt(j -> j.subject(a.toString()))).param("q","ev charging").param("size","1"))
                     .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2))
                     .andExpect(jsonPath("$.content[0].joined").value(true));
         } finally { jdbc.update("delete from social.groups where id=?",second.id()); }

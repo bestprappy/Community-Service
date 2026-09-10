@@ -19,7 +19,7 @@ public class GroupViewService {
         GroupMembership m = userId == null ? null : memberships.findById(new MembershipId(g.getId(), userId)).orElse(null);
         var groupFlairs = flairs.findByGroupIdOrderByDisplayOrderAscCreatedAtAsc(g.getId());
         return new GroupDetailResponse(g.getId(), g.getName(), g.getSlug(), g.getDescription(), g.getCountry(),
-                g.getPlaces(), g.getTags(), g.getCreatedByUserId(), g.isOfficial(), g.getStatus(), g.getMemberCount(),
+                g.getPlaces(), g.getTags(), g.getCreatedByUserId(), g.getOwnerUserId(), g.isOfficial(), g.getStatus(), g.getMemberCount(),
                 g.getPostCount(), p.getBannerUrl(), p.getBannerMediaId(), p.getSummary(), g.getWeeklyVisitorCount(),
                 g.getWeeklyContributionCount(), p.getModeratorIds(),
                 rules.findByGroupIdOrderByDisplayOrderAscCreatedAtAsc(g.getId()).stream()

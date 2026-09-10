@@ -12,7 +12,10 @@ public class UpdateGroupProfileRequest {
     public void rejectUnknown(String field, Object value) {
         throw new IllegalArgumentException("Unknown profile field");
     }
-    @Getter 
+    @Getter @Size(max = 120)
+    private String name;
+    public void setName(String value) { supplied.add("name"); name = value; }
+    @Getter
     private String description;
     public void setDescription(String value) { supplied.add("description"); description = value; }
     @Getter @Size(max = 120)

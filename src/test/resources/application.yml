@@ -23,6 +23,20 @@ eureka:
   client:
     enabled: false
 
+navio:
+  security:
+    keycloak:
+      issuer-uri: http://localhost:8180/realms/navio
+      jwk-set-uri: http://localhost:8180/realms/navio/protocol/openid-connect/certs
+      audiences: navio-api
+  community:
+    media:
+      endpoint: http://localhost:9000
+      region: us-east-1
+      bucket: navio-community-test
+      path-style: true
+      public-base-url: http://localhost:8080
+
 logging:
   level:
     root: WARN

@@ -22,7 +22,7 @@ public class GlobalExceptionHandler {
     }
     @ExceptionHandler(ServletRequestBindingException.class)
     ResponseEntity<ErrorResponse> identity(ServletRequestBindingException ex, HttpServletRequest request) {
-        return response(HttpStatus.UNAUTHORIZED, "X-User-Id is required", null, request);
+        return response(HttpStatus.BAD_REQUEST, "Request is invalid", null, request);
     }
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ErrorResponse> validation(MethodArgumentNotValidException ex, HttpServletRequest request) {
@@ -53,16 +53,24 @@ public class GlobalExceptionHandler {
     ResponseEntity<ErrorResponse> concurrent(Exception ex, HttpServletRequest request) {
         return response(HttpStatus.CONFLICT, "Group is being changed; retry the request", null, request);
     }
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    ResponseEntity<ErrorResponse> oversized(Exception ex, HttpServletRequest request) {
+        return response(HttpStatus.PAYLOAD_TOO_LARGE, "Picture must be at most 5 MiB", null, request);
+    }
+    @ExceptionHandler(org.springframework.web.multipart.support.MissingServletRequestPartException.class)
+    ResponseEntity<ErrorResponse> missingFile(Exception ex, HttpServletRequest request) {
+        return response(HttpStatus.BAD_REQUEST, "A picture file is required", null, request);
+    }
     @ExceptionHandler(Exception.class)
     ResponseEntity<ErrorResponse> unexpected(Exception ex, HttpServletRequest request) {
         log.error("Community failure operation={} path={} caller={} type={}", request.getMethod(),
-                request.getRequestURI(), request.getHeader("X-User-Id"), ex.getClass().getSimpleName());
+                request.getRequestURI(), (request.getUserPrincipal() == null ? null : request.getUserPrincipal().getName()), ex.getClass().getSimpleName());
         return response(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred", null, request);
     }
     private ResponseEntity<ErrorResponse> response(HttpStatus status, String message, Map<String, String> fields,
                                                   HttpServletRequest request) {
         log.warn("Community request failed operation={} path={} caller={} status={} reason={}", request.getMethod(),
-                request.getRequestURI(), request.getHeader("X-User-Id"), status.value(), message);
+                request.getRequestURI(), (request.getUserPrincipal() == null ? null : request.getUserPrincipal().getName()), status.value(), message);
         return ResponseEntity.status(status).body(new ErrorResponse(Instant.now(), status.value(), message,
                 status.getReasonPhrase(), fields));
     }

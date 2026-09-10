@@ -1,5 +1,23 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   application:
     name: community-service
   config:
     import: configserver:${CONFIG_SERVER_URL:http://localhost:8888}
+
+navio:
+  security:
+    keycloak:
+      issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/navio}
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/navio/protocol/openid-connect/certs}
+      audiences: ${KEYCLOAK_AUDIENCES:navio-api}
+  community:
+    media:
+      endpoint: ${COMMUNITY_S3_ENDPOINT:http://localhost:9000}
+      region: ${COMMUNITY_S3_REGION:us-east-1}
+      bucket: ${COMMUNITY_S3_BUCKET:navio-community}
+      path-style: ${COMMUNITY_S3_PATH_STYLE:true}
+      public-base-url: ${COMMUNITY_PUBLIC_BASE_URL:http://localhost:8080}

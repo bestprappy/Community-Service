@@ -25,7 +25,7 @@ public class GroupService {
                 .description(GroupValues.required(request.description(), "description"))
                 .country(request.country() == null ? null : request.country().strip())
                 .places(GroupValues.labels(request.places())).tags(GroupValues.labels(request.tags()))
-                .createdByUserId(userId).memberCount(1).build();
+                .createdByUserId(userId).ownerUserId(userId).memberCount(1).build();
         // Flush the group first: the database UNIQUE constraint resolves concurrent slug collisions.
         group = groups.saveAndFlush(group);
         profiles.save(GroupProfile.builder().groupId(group.getId()).summary(group.getDescription())

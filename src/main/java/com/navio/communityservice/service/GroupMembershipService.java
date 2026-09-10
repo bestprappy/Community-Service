@@ -17,6 +17,7 @@ public class GroupMembershipService {
     @Transactional
     public MembershipResponse join(String slug, UUID userId) {
         Group g = access.lock(slug, userId);
+        access.requireActive(g);
         GroupMembership m = memberships.findById(new MembershipId(g.getId(), userId)).orElse(null);
         if (m != null && "banned".equals(m.getState())) throw GroupException.forbidden("Banned members cannot join this group");
         if (m == null || "left".equals(m.getState())) {
@@ -32,8 +33,10 @@ public class GroupMembershipService {
     @Transactional
     public MembershipResponse leave(String slug, UUID userId) {
         Group g = access.lock(slug, userId);
+        access.requireActive(g);
         GroupMembership m = memberships.findById(new MembershipId(g.getId(), userId)).orElse(null);
         if (m != null && "banned".equals(m.getState())) throw GroupException.forbidden("Banned membership cannot be changed");
+        if (access.isOwner(g, userId)) throw GroupException.conflict("Transfer ownership before leaving the group");
         if (m != null && m.isActive()) {
             if (m.isModerator() && memberships.findByIdGroupIdAndRoleIn(g.getId(), GroupAccessService.MODERATOR_ROLES)
                     .stream().filter(GroupMembership::isActive).count() == 1) {
@@ -50,6 +53,7 @@ public class GroupMembershipService {
     @Transactional
     public MembershipResponse mute(String slug, UUID userId, boolean muted) {
         Group g = access.lock(slug, userId);
+        access.requireActive(g);
         GroupMembership m = memberships.findById(new MembershipId(g.getId(), userId))
                 .filter(GroupMembership::isActive).orElseThrow(() -> GroupException.forbidden("Join the group before changing mute state"));
         String desired = muted ? "muted" : "joined";

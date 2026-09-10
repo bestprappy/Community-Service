@@ -16,7 +16,7 @@ import org.hibernate.type.SqlTypes;
 public class Group {
     @Id @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
-    @Column(nullable = false, length = 120, updatable = false)
+    @Column(nullable = false, length = 120)
     private String name;
     @Column(nullable = false, length = 140, unique = true, updatable = false)
     private String slug;
@@ -30,6 +30,8 @@ public class Group {
     private String[] tags = new String[0];
     @Column(nullable = false, updatable = false)
     private UUID createdByUserId;
+    @Column(nullable = false)
+    private UUID ownerUserId;
     @Column(nullable = false)
     private boolean isOfficial;
     @Builder.Default @Column(nullable = false, length = 30)
