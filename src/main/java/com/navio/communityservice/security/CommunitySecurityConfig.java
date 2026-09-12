@@ -27,6 +27,7 @@ public class CommunitySecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/groups/mine").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/v1/posts", "/v1/posts/{id}", "/v1/posts/{id}/image", "/v1/posts/{id}/comments").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/groups", "/v1/groups/search", "/v1/groups/{slug}", "/v1/groups/{slug}/banner").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o.jwt(j -> j.decoder(decoder))
