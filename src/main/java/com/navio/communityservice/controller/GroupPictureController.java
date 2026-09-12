@@ -11,9 +11,14 @@ import java.util.UUID;
 public class GroupPictureController {
     private final GroupPictureService pictures;
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public GroupDetailResponse upload(@PathVariable String slug, @CurrentUser UUID actor,
+    public ResponseEntity<GroupDetailResponse> upload(@PathVariable String slug, @CurrentUser UUID actor,
             @RequestPart("file") MultipartFile file) {
-        return pictures.upload(slug, actor, file);
+        return ResponseEntity.status(HttpStatus.CREATED).body(pictures.upload(slug, actor, file));
+    }
+    @DeleteMapping
+    public ResponseEntity<Void> remove(@PathVariable String slug, @CurrentUser UUID actor) {
+        pictures.remove(slug, actor);
+        return ResponseEntity.noContent().build();
     }
     @GetMapping
     public ResponseEntity<byte[]> read(@PathVariable String slug, @CurrentUser UUID actor) {

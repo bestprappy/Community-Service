@@ -28,6 +28,23 @@ public class GroupPictureService {
     }
     public String bannerUrl(String slug) { return publicBaseUrl + "/v1/groups/" + slug + "/banner"; }
     @Transactional
+    public void remove(String slug, UUID actor) {
+        Group group = access.lock(slug, actor);
+        access.requireContentEditor(group, actor);
+        GroupProfile profile = profiles.findById(group.getId()).orElseThrow();
+        GroupMedia previous = profile.getBannerMediaId() == null ? null : media.findById(profile.getBannerMediaId()).orElse(null);
+        profile.setBannerMediaId(null);
+        profile.setBannerUrl(null);
+        profiles.saveAndFlush(profile);
+        if (previous != null) {
+            media.delete(previous);
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { cleanup(previous.getObjectKey()); }
+            });
+        }
+        group.setUpdatedAt(Instant.now());
+    }
+    @Transactional
     public GroupDetailResponse upload(String slug, UUID actor, MultipartFile file) {
         Group group = access.lock(slug, actor);
         access.requireContentEditor(group, actor);
