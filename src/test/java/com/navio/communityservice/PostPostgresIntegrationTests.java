@@ -77,9 +77,18 @@ class PostPostgresIntegrationTests {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"A reply\",\"parentCommentId\":\""+commentId+"\"}"))
                 .andExpect(status().isCreated());
         mvc.perform(get(path)).andExpect(jsonPath("$.commentCount").value(2));
+        mvc.perform(patch(path+"/comments/"+commentId).with(jwt().jwt(j -> j.subject(owner.toString())))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"A clearer question\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.body").value("A clearer question")).andExpect(jsonPath("$.edited").value(true));
         mvc.perform(delete(path+"/comments/"+commentId).with(jwt().jwt(j -> j.subject(owner.toString())))).andExpect(status().isNoContent());
-        mvc.perform(get(path+"/comments")).andExpect(jsonPath("$.content[0].deleted").value(true)).andExpect(jsonPath("$.content[1].body").value("A reply"));
+        mvc.perform(get(path+"/comments")).andExpect(jsonPath("$.content[0].deleted").value(true)).andExpect(jsonPath("$.content[0].edited").value(false))
+                .andExpect(jsonPath("$.content[1].body").value("A reply"));
         mvc.perform(get(path)).andExpect(jsonPath("$.commentCount").value(1));
+        String replyId = json.readTree(mvc.perform(get(path+"/comments")).andReturn().getResponse().getContentAsString())
+                .get("content").get(1).get("id").asText();
+        mvc.perform(delete(path+"/comments/"+replyId).with(jwt().jwt(j -> j.subject(owner.toString())))).andExpect(status().isNoContent());
+        mvc.perform(get(path+"/comments")).andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(get(path)).andExpect(jsonPath("$.commentCount").value(0));
         mvc.perform(patch(path).with(jwt().jwt(j -> j.subject(owner.toString()))).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"title\":\"Renamed\",\"body\":\"Updated\"}")).andExpect(status().isOk());
         mvc.perform(get(path)).andExpect(jsonPath("$.title").value("Renamed"));

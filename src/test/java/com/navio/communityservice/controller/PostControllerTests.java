@@ -36,7 +36,8 @@ class PostControllerTests {
 
     @Test void anonymousMutationsNeverReachTheServices() throws Exception {
         for (var request : List.of(post("/v1/posts"), patch(BASE), delete(BASE), put(BASE + "/vote"),
-                post(BASE + "/comments"), delete(BASE + "/comments/" + ID), put(BASE + "/comments/" + ID + "/vote"))) {
+                post(BASE + "/comments"), patch(BASE + "/comments/" + ID), delete(BASE + "/comments/" + ID),
+                put(BASE + "/comments/" + ID + "/vote"))) {
             mvc.perform(request.contentType(MediaType.APPLICATION_JSON).content("{}"))
                     .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
         }
@@ -68,6 +69,23 @@ class PostControllerTests {
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
         }
         verifyNoInteractions(posts);
+    }
+
+    @Test void blankOrOversizedCommentEditsAreRejectedBeforeAnyWrite() throws Exception {
+        for (String body : List.of("{\"body\":\" \"}", "{}", "{\"body\":\"" + "x".repeat(10001) + "\"}")) {
+            mvc.perform(patch(BASE + "/comments/" + ID).with(jwt().jwt(j -> j.subject(USER.toString())))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
+        }
+        verifyNoInteractions(comments);
+    }
+
+    @Test void editingSomeoneElsesCommentReturnsTheForbiddenContract() throws Exception {
+        when(comments.update(eq(ID), eq(ID), eq(USER), any())).thenThrow(GroupException.forbidden("Only the author can edit this comment"));
+        mvc.perform(patch(BASE + "/comments/" + ID).with(jwt().jwt(j -> j.subject(USER.toString())))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"Rewritten\"}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.message").value("Only the author can edit this comment"));
     }
 
     @Test void invalidVotesCannotBecomeArbitraryScores() throws Exception {

@@ -33,11 +33,36 @@ public class CommentService {
     }
 
     @Transactional
+    public CommentResponse update(UUID postId, UUID id, UUID actor, UpdateCommentRequest r) {
+        posts.writable(postId, actor);
+        var comment = find(postId, id, actor);
+        if (comment.deleted()) throw GroupException.invalid("Cannot edit a deleted comment");
+        if (!comment.authorId().equals(actor)) throw GroupException.forbidden("Only the author can edit this comment");
+        comments.update(id, r.body());
+        return find(postId, id, actor);
+    }
+
+    /**
+     * A comment with replies becomes an unavailable placeholder; one without replies disappears, along with any
+     * deleted ancestors it was the last reply to. Writers are serialized by the group lock taken in writable().
+     */
+    @Transactional
     public void delete(UUID postId, UUID id, UUID actor) {
         var post = posts.writable(postId, actor);
         var comment = find(postId, id, actor);
         posts.requireAuthorOrModerator(post.groupId(), comment.authorId(), actor);
-        comments.delete(id);
+        if (comments.hasReplies(id)) {
+            comments.softDelete(id);
+            return;
+        }
+        comments.remove(id);
+        UUID parentId = comment.parentCommentId();
+        while (parentId != null) {
+            var parent = comments.find(postId, parentId, actor).orElse(null);
+            if (parent == null || !parent.deleted() || comments.hasReplies(parentId)) return;
+            comments.remove(parentId);
+            parentId = parent.parentCommentId();
+        }
     }
 
     @Transactional

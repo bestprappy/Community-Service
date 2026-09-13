@@ -14,13 +14,14 @@ public class CommentRepository {
     private final NamedParameterJdbcTemplate jdbc;
     private static final String SELECT = """
             SELECT c.*,
+              (NOT c.deleted AND c.updated_at > c.created_at) AS edited,
               COALESCE((SELECT SUM(v.value) FROM social.comment_votes v WHERE v.comment_id=c.id),0) AS score,
               COALESCE((SELECT v.value FROM social.comment_votes v WHERE v.comment_id=c.id AND v.user_id=:actor),0) AS viewer_vote
             FROM social.comments c
             """;
     private static final RowMapper<CommentResponse> MAPPER = (r, n) -> new CommentResponse(
             r.getObject("id", UUID.class), r.getObject("post_id", UUID.class), r.getObject("parent_comment_id", UUID.class),
-            r.getObject("author_id", UUID.class), r.getString("body"), r.getBoolean("deleted"),
+            r.getObject("author_id", UUID.class), r.getString("body"), r.getBoolean("deleted"), r.getBoolean("edited"),
             r.getTimestamp("created_at").toInstant(), r.getInt("score"), r.getInt("viewer_vote"));
 
     public Optional<CommentResponse> find(UUID postId, UUID id, UUID actor) {
@@ -38,9 +39,25 @@ public class CommentRepository {
                 params(postId, actor).addValue("id", id).addValue("parent", r.parentCommentId()).addValue("body", r.body().strip()));
     }
 
-    public void delete(UUID id) {
+    public void update(UUID id, String body) {
+        jdbc.update("UPDATE social.comments SET body=:body,updated_at=now() WHERE id=:id AND NOT deleted",
+                new MapSqlParameterSource("id", id).addValue("body", body.strip()));
+    }
+
+    public boolean hasReplies(UUID id) {
+        return Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM social.comments WHERE parent_comment_id=:id)", Map.of("id", id), Boolean.class));
+    }
+
+    /** Keeps the row as a placeholder so its replies stay attached to the thread. */
+    public void softDelete(UUID id) {
         jdbc.update("UPDATE social.comments SET body='',deleted=true,updated_at=now() WHERE id=:id", Map.of("id", id));
         jdbc.update("DELETE FROM social.comment_votes WHERE comment_id=:id", Map.of("id", id));
+    }
+
+    /** Removes a comment without replies; its votes cascade. */
+    public void remove(UUID id) {
+        jdbc.update("DELETE FROM social.comments WHERE id=:id", Map.of("id", id));
     }
 
     public void vote(UUID id, UUID actor, int value) {

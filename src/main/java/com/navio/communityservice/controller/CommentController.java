@@ -28,6 +28,12 @@ public class CommentController {
         return ResponseEntity.status(HttpStatus.CREATED).body(comments.create(postId, actor, request));
     }
 
+    @PatchMapping("/{id}")
+    public ResponseEntity<CommentResponse> update(@PathVariable UUID postId, @PathVariable UUID id, @CurrentUser UUID actor,
+            @Valid @RequestBody UpdateCommentRequest request) {
+        return ResponseEntity.ok(comments.update(postId, id, actor, request));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID postId, @PathVariable UUID id, @CurrentUser UUID actor) {
         comments.delete(postId, id, actor);
