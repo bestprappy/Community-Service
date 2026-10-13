@@ -22,10 +22,16 @@ public class PostService {
     private final PostPictureService pictures;
 
     public Page<PostResponse> list(String slug, UUID actor, String query, String sort, int page, int size) {
+        return list(slug, actor, false, query, sort, page, size);
+    }
+
+    /** {@code joinedOnly} narrows the cross-community feed to the actor's joined communities; anonymous callers get none. */
+    public Page<PostResponse> list(String slug, UUID actor, boolean joinedOnly, String query, String sort, int page, int size) {
         if (!List.of("new", "top", "best").contains(sort)) throw GroupException.invalid("Unknown post sort");
         if (query.length() > 200) throw GroupException.invalid("Search must be at most 200 characters");
         UUID groupId = slug == null || slug.isBlank() ? null : access.readable(slug, actor).getId();
-        return posts.list(groupId, actor, query.strip(), sort, pagination(page, size));
+        if (groupId == null && joinedOnly && actor == null) return Page.empty(pagination(page, size));
+        return posts.list(groupId, actor, joinedOnly, query.strip(), sort, pagination(page, size));
     }
 
     public PostResponse read(UUID id, UUID actor) {

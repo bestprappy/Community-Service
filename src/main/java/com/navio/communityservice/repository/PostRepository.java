@@ -12,16 +12,22 @@ import java.util.*;
 @RequiredArgsConstructor
 public class PostRepository {
     private final NamedParameterJdbcTemplate jdbc;
-    private static final String FROM = " FROM social.posts p JOIN social.groups g ON g.id = p.group_id ";
+    private static final String FROM = " FROM social.posts p JOIN social.groups g ON g.id = p.group_id"
+            + " LEFT JOIN social.group_profiles gp ON gp.group_id = g.id ";
     private static final String SELECT = """
-            SELECT p.*, g.slug AS group_slug, g.name AS group_name,
+            SELECT p.*, g.slug AS group_slug, g.name AS group_name, gp.icon_media_id AS group_icon_media_id,
               COALESCE((SELECT SUM(v.value) FROM social.post_votes v WHERE v.post_id=p.id),0) AS score,
               (SELECT COUNT(*) FROM social.comments c WHERE c.post_id=p.id AND NOT c.deleted) AS comment_count,
               COALESCE((SELECT v.value FROM social.post_votes v WHERE v.post_id=p.id AND v.user_id=:actor),0) AS viewer_vote
             """;
+    /** "Best": votes plus half-weighted discussion, decayed by age in hours so new activity can surface. */
+    private static final String HOT = """
+            ((COALESCE((SELECT SUM(v.value) FROM social.post_votes v WHERE v.post_id=p.id),0)
+              + (SELECT COUNT(*) FROM social.comments c WHERE c.post_id=p.id AND NOT c.deleted) * 0.5 + 1)
+             / POWER(EXTRACT(EPOCH FROM (now() - p.created_at)) / 3600.0 + 2, 1.5))""";
     private static final RowMapper<PostResponse> MAPPER = (r, n) -> new PostResponse(
             r.getObject("id", UUID.class), r.getObject("group_id", UUID.class), r.getString("group_slug"),
-            r.getString("group_name"), r.getObject("author_id", UUID.class), r.getString("title"), r.getString("body"),
+            r.getString("group_name"), r.getObject("group_icon_media_id", UUID.class), r.getObject("author_id", UUID.class), r.getString("title"), r.getString("body"),
             r.getString("link_url"), r.getObject("flair_id", UUID.class), r.getString("shared_trip_id"),
             r.getString("image_key") == null ? null : "/v1/posts/" + r.getString("id") + "/image",
             r.getTimestamp("created_at").toInstant(), r.getTimestamp("updated_at").toInstant(),
@@ -31,15 +37,22 @@ public class PostRepository {
         return jdbc.query(SELECT + FROM + " WHERE p.id=:id", params(actor).addValue("id", id), MAPPER).stream().findFirst();
     }
 
-    public Page<PostResponse> list(UUID groupId, UUID actor, String query, String sort, Pageable page) {
+    public Page<PostResponse> list(UUID groupId, UUID actor, boolean joinedOnly, String query, String sort, Pageable page) {
         String where = groupId == null ? " WHERE g.status='active' AND NOT EXISTS (SELECT 1 FROM social.group_memberships m WHERE m.group_id=g.id AND m.user_id=:actor AND m.state='muted')"
                 : " WHERE p.group_id=:groupId";
+        if (groupId == null && joinedOnly) {
+            where += " AND EXISTS (SELECT 1 FROM social.group_memberships m WHERE m.group_id=g.id AND m.user_id=:actor AND m.state='joined')";
+        }
         // Literal, escaped substring search. User input never becomes SQL syntax or a LIKE wildcard.
         where += " AND LOWER(p.title || ' ' || p.body || ' ' || g.name) LIKE :query ESCAPE '!'";
         var parameters = params(actor).addValue("groupId", groupId)
                 .addValue("query", "%" + query.toLowerCase(Locale.ROOT).replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%")
                 .addValue("limit", page.getPageSize()).addValue("offset", page.getOffset());
-        String order = "new".equals(sort) ? "p.created_at DESC, p.id" : "score DESC, p.created_at DESC, p.id";
+        String order = switch (sort) {
+            case "new" -> "p.created_at DESC, p.id";
+            case "best" -> HOT + " DESC, p.created_at DESC, p.id";
+            default -> "score DESC, p.created_at DESC, p.id";
+        };
         Long total = jdbc.queryForObject("SELECT COUNT(*)" + FROM + where, parameters, Long.class);
         return new PageImpl<>(jdbc.query(SELECT + FROM + where + " ORDER BY " + order + " LIMIT :limit OFFSET :offset", parameters, MAPPER), page, total == null ? 0 : total);
     }

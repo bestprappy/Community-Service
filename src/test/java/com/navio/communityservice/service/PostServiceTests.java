@@ -78,7 +78,7 @@ class PostServiceTests {
     }
 
     private PostResponse response() {
-        return new PostResponse(ID, ID, "trips", "Trips", AUTHOR, "Title", "", null, null, null, null,
+        return new PostResponse(ID, ID, "trips", "Trips", null, AUTHOR, "Title", "", null, null, null, null,
                 Instant.EPOCH, Instant.EPOCH, 0, 0, 0);
     }
 }

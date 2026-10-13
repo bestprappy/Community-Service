@@ -3,6 +3,7 @@ package com.navio.communityservice.service;
 import com.navio.communityservice.dto.*;
 import com.navio.communityservice.exception.GroupException;
 import com.navio.communityservice.repository.CommentRepository;
+import com.navio.communityservice.support.CommentReaction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
@@ -71,6 +72,24 @@ public class CommentService {
         if (find(postId, id, actor).deleted()) throw GroupException.invalid("Cannot vote on a deleted comment");
         comments.vote(id, actor, value);
         return find(postId, id, actor);
+    }
+
+    /** Adding is idempotent, so a repeated click or retry never stacks the same reaction twice. */
+    @Transactional
+    public CommentResponse react(UUID postId, UUID id, UUID actor, String reaction) {
+        var parsed = CommentReaction.parse(reaction);
+        posts.writable(postId, actor);
+        if (find(postId, id, actor).deleted()) throw GroupException.invalid("Cannot react to a deleted comment");
+        comments.react(id, actor, parsed);
+        return find(postId, id, actor);
+    }
+
+    @Transactional
+    public void unreact(UUID postId, UUID id, UUID actor, String reaction) {
+        var parsed = CommentReaction.parse(reaction);
+        posts.writable(postId, actor);
+        find(postId, id, actor);
+        comments.unreact(id, actor, parsed);
     }
 
     private CommentResponse find(UUID postId, UUID id, UUID actor) {

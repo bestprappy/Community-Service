@@ -12,15 +12,17 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     Optional<Group> lockBySlug(String slug);
 
     @Query(value = """
-        select new com.navio.communityservice.dto.GroupListItem(g, m.state, m.role)
+        select new com.navio.communityservice.dto.GroupListItem(g, m.state, m.role, p.iconMediaId, p.bannerMediaId)
         from Group g left join GroupMembership m on m.id.groupId = g.id and m.id.userId = :userId
+        left join GroupProfile p on p.groupId = g.id
         where g.status = 'active' order by g.isOfficial desc, g.memberCount desc, g.id
         """, countQuery = "select count(g) from Group g where g.status = 'active'")
     Page<GroupListItem> discover(UUID userId, Pageable pageable);
 
     @Query(value = """
-        select new com.navio.communityservice.dto.GroupListItem(g, m.state, m.role)
+        select new com.navio.communityservice.dto.GroupListItem(g, m.state, m.role, p.iconMediaId, p.bannerMediaId)
         from Group g join GroupMembership m on m.id.groupId = g.id
+        left join GroupProfile p on p.groupId = g.id
         where m.id.userId = :userId and m.state in ('joined','muted')
           and (g.status <> 'hidden' or m.role in ('moderator','admin'))
         order by m.updatedAt desc, g.id
@@ -34,9 +36,11 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     @Query(value = """
         select g.id, g.name, g.slug, g.description, g.country, g.places, g.tags,
           g.is_official as official, g.status, g.member_count as memberCount, g.post_count as postCount,
-          m.state as membershipState, m.role, g.created_at as createdAt, g.updated_at as updatedAt
+          m.state as membershipState, m.role, p.icon_media_id as iconMediaId, p.banner_media_id as bannerMediaId,
+          g.created_at as createdAt, g.updated_at as updatedAt
         from social.groups g left join social.group_memberships m
           on m.group_id = g.id and m.user_id = :userId
+        left join social.group_profiles p on p.group_id = g.id
         where g.status = 'active' and g.search_vector @@ plainto_tsquery('simple', :q)
         order by ts_rank(g.search_vector, plainto_tsquery('simple', :q)) desc, g.id
         """, countQuery = """

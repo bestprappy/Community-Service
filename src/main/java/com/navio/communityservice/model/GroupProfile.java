@@ -19,6 +19,7 @@ public class GroupProfile {
     @Id
     private UUID groupId;
     private UUID bannerMediaId;
+    private UUID iconMediaId;
     @Column(columnDefinition = "text")
     private String bannerUrl;
     @Column(nullable = false, columnDefinition = "text")

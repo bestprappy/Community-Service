@@ -26,15 +26,15 @@ public class GroupPictureService {
         this.access = access; this.profiles = profiles; this.media = media; this.views = views;
         this.storage = storage; this.publicBaseUrl = publicBaseUrl.replaceAll("/+$", "");
     }
-    public String bannerUrl(String slug) { return publicBaseUrl + "/v1/groups/" + slug + "/banner"; }
+    public String bannerUrl(String slug) { return pictureUrl(slug, GroupPictureSlot.BANNER); }
+    private String pictureUrl(String slug, GroupPictureSlot slot) { return publicBaseUrl + "/v1/groups/" + slug + "/" + slot.path(); }
     @Transactional
-    public void remove(String slug, UUID actor) {
+    public void remove(String slug, GroupPictureSlot slot, UUID actor) {
         Group group = access.lock(slug, actor);
         access.requireContentEditor(group, actor);
         GroupProfile profile = profiles.findById(group.getId()).orElseThrow();
-        GroupMedia previous = profile.getBannerMediaId() == null ? null : media.findById(profile.getBannerMediaId()).orElse(null);
-        profile.setBannerMediaId(null);
-        profile.setBannerUrl(null);
+        GroupMedia previous = current(profile, slot);
+        slot.assign(profile, null, null);
         profiles.saveAndFlush(profile);
         if (previous != null) {
             media.delete(previous);
@@ -45,12 +45,12 @@ public class GroupPictureService {
         group.setUpdatedAt(Instant.now());
     }
     @Transactional
-    public GroupDetailResponse upload(String slug, UUID actor, MultipartFile file) {
+    public GroupDetailResponse upload(String slug, GroupPictureSlot slot, UUID actor, MultipartFile file) {
         Group group = access.lock(slug, actor);
         access.requireContentEditor(group, actor);
         var picture = PictureValidator.validate(file);
         GroupProfile profile = profiles.findById(group.getId()).orElseThrow();
-        GroupMedia previous = profile.getBannerMediaId() == null ? null : media.findById(profile.getBannerMediaId()).orElse(null);
+        GroupMedia previous = current(profile, slot);
         UUID id = UUID.randomUUID();
         String key = "groups/" + group.getId() + "/" + id;
         // Registered before the PUT to also clean up ambiguous timeout outcomes.
@@ -62,8 +62,7 @@ public class GroupPictureService {
         storage.put(key, picture.bytes(), picture.contentType());
         media.saveAndFlush(GroupMedia.builder().id(id).groupId(group.getId()).uploadedByUserId(actor)
                 .objectKey(key).contentType(picture.contentType()).sizeBytes(picture.bytes().length).createdAt(Instant.now()).build());
-        profile.setBannerMediaId(id);
-        profile.setBannerUrl(bannerUrl(slug));
+        slot.assign(profile, id, pictureUrl(slug, slot));
         profiles.saveAndFlush(profile); // Switch the FK before removing the previous metadata row.
         if (previous != null) {
             media.delete(previous);
@@ -75,12 +74,16 @@ public class GroupPictureService {
         return views.detail(group, actor);
     }
     @Transactional(readOnly = true)
-    public PictureValidator.Picture read(String slug, UUID actor) {
+    public PictureValidator.Picture read(String slug, GroupPictureSlot slot, UUID actor) {
         Group group = access.readable(slug, actor);
-        UUID id = profiles.findById(group.getId()).orElseThrow().getBannerMediaId();
+        UUID id = slot.mediaId(profiles.findById(group.getId()).orElseThrow());
         if (id == null) throw GroupException.notFound();
         GroupMedia asset = media.findById(id).filter(m -> group.getId().equals(m.getGroupId())).orElseThrow(GroupException::notFound);
         return new PictureValidator.Picture(storage.get(asset.getObjectKey()), asset.getContentType());
+    }
+    private GroupMedia current(GroupProfile profile, GroupPictureSlot slot) {
+        UUID id = slot.mediaId(profile);
+        return id == null ? null : media.findById(id).orElse(null);
     }
     private void cleanup(String key) {
         try { storage.delete(key); }

@@ -159,4 +159,74 @@ class PostPostgresIntegrationTests {
         mvc.perform(get(path)).andExpect(status().isNotFound());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM media.group_media WHERE group_id=?",Integer.class,groupId)).isZero();
     }
+
+    @Test void iconsLiveBesideTheBannerAndAppearOnListsAndPosts() throws Exception {
+        String icon="/v1/groups/"+slug+"/icon", banner="/v1/groups/"+slug+"/banner";
+        mvc.perform(multipart(icon).file(new MockMultipartFile("file","icon.png","image/png",picture()))
+                .with(jwt().jwt(j -> j.subject(member.toString())))).andExpect(status().isForbidden());
+        var detail = json.readTree(mvc.perform(multipart(icon).file(new MockMultipartFile("file","icon.png","image/png",picture()))
+                .with(jwt().jwt(j -> j.subject(owner.toString())))).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        String iconId = detail.get("iconMediaId").asText();
+        assertThat(detail.get("bannerMediaId").isNull()).isTrue();
+        mvc.perform(multipart(banner).file(new MockMultipartFile("file","banner.png","image/png",picture()))
+                .with(jwt().jwt(j -> j.subject(owner.toString())))).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.iconMediaId").value(iconId));
+        assertThat(objects).hasSize(2);
+        mvc.perform(get(icon)).andExpect(status().isOk()).andExpect(content().contentType("image/png"));
+        mvc.perform(get("/v1/groups")).andExpect(jsonPath("$.content[?(@.slug=='"+slug+"')].iconMediaId").value(iconId));
+        mvc.perform(get("/v1/groups/search").param("q",owner.toString()))
+                .andExpect(jsonPath("$.content[?(@.slug=='"+slug+"')].iconMediaId").value(iconId));
+        mvc.perform(get("/v1/groups/mine").with(jwt().jwt(j -> j.subject(owner.toString()))))
+                .andExpect(jsonPath("$.content[?(@.slug=='"+slug+"')].bannerMediaId").isNotEmpty());
+        mvc.perform(get("/v1/posts/"+create("With icon",false).get("id").asText())).andExpect(jsonPath("$.groupIconMediaId").value(iconId));
+        mvc.perform(delete(icon).with(jwt().jwt(j -> j.subject(owner.toString())))).andExpect(status().isNoContent());
+        mvc.perform(get(icon)).andExpect(status().isNotFound());
+        mvc.perform(get(banner)).andExpect(status().isOk());
+        assertThat(objects).hasSize(1);
+    }
+
+    @Test void reactionsAreCountedPerMemberAndClearedWhenTheCommentIsRemoved() throws Exception {
+        String path = "/v1/posts/"+create("Reactions",false).get("id").asText();
+        mvc.perform(post("/v1/groups/"+slug+"/members/me").with(jwt().jwt(j -> j.subject(member.toString())))).andExpect(status().isOk());
+        String commentId = json.readTree(mvc.perform(post(path+"/comments").with(jwt().jwt(j -> j.subject(owner.toString())))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"Try the night market\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString()).get("id").asText();
+        mvc.perform(post(path+"/comments").with(jwt().jwt(j -> j.subject(member.toString())))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"Thanks!\",\"parentCommentId\":\""+commentId+"\"}"))
+                .andExpect(status().isCreated());
+        String reactions = path+"/comments/"+commentId+"/reactions/";
+        for (var actor : List.of(owner, member, member)) {
+            mvc.perform(put(reactions+"want_to_go").with(jwt().jwt(j -> j.subject(actor.toString())))).andExpect(status().isOk());
+        }
+        mvc.perform(put(reactions+"helpful").with(jwt().jwt(j -> j.subject(member.toString()))))
+                .andExpect(jsonPath("$.reactions[0].reaction").value("helpful")).andExpect(jsonPath("$.reactions[0].count").value(1))
+                .andExpect(jsonPath("$.reactions[1].reaction").value("want_to_go")).andExpect(jsonPath("$.reactions[1].count").value(2))
+                .andExpect(jsonPath("$.reactions[1].reacted").value(true));
+        mvc.perform(get(path+"/comments")).andExpect(jsonPath("$.content[0].reactions[1].count").value(2))
+                .andExpect(jsonPath("$.content[0].reactions[1].reacted").value(false));
+        mvc.perform(put(reactions+"angry").with(jwt().jwt(j -> j.subject(member.toString())))).andExpect(status().isBadRequest());
+        mvc.perform(put(reactions+"love").with(jwt().jwt(j -> j.subject(UUID.randomUUID().toString())))).andExpect(status().isForbidden());
+        mvc.perform(delete(reactions+"want_to_go").with(jwt().jwt(j -> j.subject(member.toString())))).andExpect(status().isNoContent());
+        mvc.perform(get(path+"/comments").with(jwt().jwt(j -> j.subject(member.toString()))))
+                .andExpect(jsonPath("$.content[0].reactions[1].count").value(1)).andExpect(jsonPath("$.content[0].reactions[1].reacted").value(false));
+        // Deleting a comment with replies keeps a placeholder, which must not keep its reactions.
+        mvc.perform(delete(path+"/comments/"+commentId).with(jwt().jwt(j -> j.subject(owner.toString())))).andExpect(status().isNoContent());
+        mvc.perform(get(path+"/comments")).andExpect(jsonPath("$.content[0].deleted").value(true))
+                .andExpect(jsonPath("$.content[0].reactions").isEmpty());
+        mvc.perform(put(reactions+"love").with(jwt().jwt(j -> j.subject(member.toString())))).andExpect(status().isBadRequest());
+    }
+
+    @Test void theHomeFeedShowsOnlyJoinedCommunitiesAndBestFavoursRecentActivity() throws Exception {
+        create("Fresh question",false);
+        var old = create("Old favourite",false).get("id").asText();
+        jdbc.update("UPDATE social.posts SET created_at=now() - interval '30 days' WHERE id=?::uuid",old);
+        jdbc.update("INSERT INTO social.post_votes(post_id,user_id,value) VALUES(?::uuid,?,1),(?::uuid,?,1)",old,UUID.randomUUID(),old,UUID.randomUUID());
+        mvc.perform(get("/v1/posts").param("joined","true").with(jwt().jwt(j -> j.subject(member.toString()))))
+                .andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(get("/v1/posts").param("joined","true")).andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(get("/v1/posts").param("joined","true").param("sort","best").with(jwt().jwt(j -> j.subject(owner.toString()))))
+                .andExpect(jsonPath("$.totalElements").value(2)).andExpect(jsonPath("$.content[0].title").value("Fresh question"));
+        mvc.perform(get("/v1/posts").param("group",slug).param("sort","top"))
+                .andExpect(jsonPath("$.content[0].title").value("Old favourite"));
+    }
 }

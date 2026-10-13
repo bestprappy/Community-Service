@@ -40,6 +40,19 @@ public class CommentController {
         return ResponseEntity.noContent().build();
     }
 
+    @PutMapping("/{id}/reactions/{reaction}")
+    public ResponseEntity<CommentResponse> react(@PathVariable UUID postId, @PathVariable UUID id,
+            @PathVariable String reaction, @CurrentUser UUID actor) {
+        return ResponseEntity.ok(comments.react(postId, id, actor, reaction));
+    }
+
+    @DeleteMapping("/{id}/reactions/{reaction}")
+    public ResponseEntity<Void> unreact(@PathVariable UUID postId, @PathVariable UUID id,
+            @PathVariable String reaction, @CurrentUser UUID actor) {
+        comments.unreact(postId, id, actor, reaction);
+        return ResponseEntity.noContent().build();
+    }
+
     @PutMapping("/{id}/vote")
     public ResponseEntity<CommentResponse> vote(@PathVariable UUID postId, @PathVariable UUID id,
             @CurrentUser UUID actor, @Valid @RequestBody VoteRequest request) {

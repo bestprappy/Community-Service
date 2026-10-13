@@ -20,7 +20,7 @@ public class GroupViewService {
         var groupFlairs = flairs.findByGroupIdOrderByDisplayOrderAscCreatedAtAsc(g.getId());
         return new GroupDetailResponse(g.getId(), g.getName(), g.getSlug(), g.getDescription(), g.getCountry(),
                 g.getPlaces(), g.getTags(), g.getCreatedByUserId(), g.getOwnerUserId(), g.isOfficial(), g.getStatus(), g.getMemberCount(),
-                g.getPostCount(), p.getBannerUrl(), p.getBannerMediaId(), p.getSummary(), g.getWeeklyVisitorCount(),
+                g.getPostCount(), p.getBannerUrl(), p.getBannerMediaId(), p.getIconMediaId(), p.getSummary(), g.getWeeklyVisitorCount(),
                 g.getWeeklyContributionCount(), p.getModeratorIds(),
                 rules.findByGroupIdOrderByDisplayOrderAscCreatedAtAsc(g.getId()).stream()
                     .map(r -> new RuleResponse(r.getId(), r.getTitle(), r.getDescription(), r.getDisplayOrder())).toList(),

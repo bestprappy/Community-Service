@@ -3,6 +3,7 @@ package com.navio.communityservice.service;
 import com.navio.communityservice.dto.*;
 import com.navio.communityservice.exception.GroupException;
 import com.navio.communityservice.repository.CommentRepository;
+import com.navio.communityservice.support.CommentReaction;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
@@ -96,13 +97,41 @@ class CommentServiceTests {
         verify(comments, never()).remove(PARENT);
     }
 
+    @Test void unknownReactionsAreRejectedBeforeTouchingThePost() {
+        assertThatThrownBy(() -> service.react(POST, COMMENT, USER, "angry"))
+                .isInstanceOfSatisfying(GroupException.class, ex -> assertThat(ex.getStatus().value()).isEqualTo(400));
+        verifyNoInteractions(posts, comments);
+    }
+
+    @Test void nonMembersCannotReact() {
+        when(posts.writable(POST, USER)).thenThrow(GroupException.forbidden("Active group membership is required"));
+        assertThatThrownBy(() -> service.react(POST, COMMENT, USER, "love"))
+                .isInstanceOfSatisfying(GroupException.class, ex -> assertThat(ex.getStatus().value()).isEqualTo(403));
+        verifyNoInteractions(comments);
+    }
+
+    @Test void deletedCommentsCannotReceiveReactions() {
+        when(comments.find(POST, COMMENT, USER)).thenReturn(Optional.of(comment(COMMENT, null, OTHER, true)));
+        assertThatThrownBy(() -> service.react(POST, COMMENT, USER, "helpful"))
+                .isInstanceOfSatisfying(GroupException.class, ex -> assertThat(ex.getStatus().value()).isEqualTo(400));
+        verify(comments, never()).react(any(), any(), any());
+    }
+
+    @Test void membersReactAndRemoveTheirOwnReaction() {
+        when(comments.find(POST, COMMENT, USER)).thenReturn(Optional.of(comment(COMMENT, null, OTHER, false)));
+        service.react(POST, COMMENT, USER, "want_to_go");
+        service.unreact(POST, COMMENT, USER, "want_to_go");
+        verify(comments).react(COMMENT, USER, CommentReaction.WANT_TO_GO);
+        verify(comments).unreact(COMMENT, USER, CommentReaction.WANT_TO_GO);
+    }
+
     private static CommentResponse comment(UUID id, UUID parent, UUID author, boolean deleted) {
         return new CommentResponse(id, POST, parent, author, deleted ? "" : "Text", deleted, false,
                 Instant.parse("2026-09-12T00:00:00Z"), 0, 0);
     }
 
     private static PostResponse post() {
-        return new PostResponse(POST, GROUP, "trips", "Trips", OTHER, "A trip", "Notes", null, null, null, null,
+        return new PostResponse(POST, GROUP, "trips", "Trips", null, OTHER, "A trip", "Notes", null, null, null, null,
                 Instant.parse("2026-09-12T00:00:00Z"), Instant.parse("2026-09-12T00:00:00Z"), 0, 0, 0);
     }
 }

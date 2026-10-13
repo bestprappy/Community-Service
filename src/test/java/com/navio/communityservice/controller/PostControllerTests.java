@@ -37,7 +37,8 @@ class PostControllerTests {
     @Test void anonymousMutationsNeverReachTheServices() throws Exception {
         for (var request : List.of(post("/v1/posts"), patch(BASE), delete(BASE), put(BASE + "/vote"),
                 post(BASE + "/comments"), patch(BASE + "/comments/" + ID), delete(BASE + "/comments/" + ID),
-                put(BASE + "/comments/" + ID + "/vote"))) {
+                put(BASE + "/comments/" + ID + "/vote"), put(BASE + "/comments/" + ID + "/reactions/love"),
+                delete(BASE + "/comments/" + ID + "/reactions/love"))) {
             mvc.perform(request.contentType(MediaType.APPLICATION_JSON).content("{}"))
                     .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
         }
@@ -107,8 +108,34 @@ class PostControllerTests {
         mvc.perform(get(BASE + "/image")).andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404));
     }
 
+    @Test void reactionsUseTheValidatedSubjectAndReturnTheUpdatedComment() throws Exception {
+        var reacted = new CommentResponse(ID, ID, null, USER, "Tip", false, false, Instant.parse("2026-09-12T00:00:00Z"), 0, 0,
+                List.of(new ReactionSummary("want_to_go", 3, true)));
+        when(comments.react(ID, ID, USER, "want_to_go")).thenReturn(reacted);
+        mvc.perform(put(BASE + "/comments/" + ID + "/reactions/want_to_go").with(jwt().jwt(j -> j.subject(USER.toString()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.reactions[0].reaction").value("want_to_go"))
+                .andExpect(jsonPath("$.reactions[0].count").value(3)).andExpect(jsonPath("$.reactions[0].reacted").value(true));
+        mvc.perform(delete(BASE + "/comments/" + ID + "/reactions/want_to_go").with(jwt().jwt(j -> j.subject(USER.toString()))))
+                .andExpect(status().isNoContent());
+        verify(comments).unreact(ID, ID, USER, "want_to_go");
+    }
+
+    @Test void unknownReactionsReturnTheBadRequestContract() throws Exception {
+        when(comments.react(ID, ID, USER, "angry")).thenThrow(GroupException.invalid("Unknown reaction"));
+        mvc.perform(put(BASE + "/comments/" + ID + "/reactions/angry").with(jwt().jwt(j -> j.subject(USER.toString()))))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Unknown reaction"));
+    }
+
+    @Test void theHomeFeedAsksForJoinedCommunitiesOnly() throws Exception {
+        when(posts.list(null, USER, true, "", "best", 0, 20)).thenReturn(org.springframework.data.domain.Page.empty());
+        mvc.perform(get("/v1/posts?joined=true&sort=best").with(jwt().jwt(j -> j.subject(USER.toString()))))
+                .andExpect(status().isOk());
+        verify(posts).list(null, USER, true, "", "best", 0, 20);
+    }
+
     private PostResponse response() {
-        return new PostResponse(ID, ID, "trips", "Trips", USER, "A trip", "Notes", null, null, null, null,
+        return new PostResponse(ID, ID, "trips", "Trips", null, USER, "A trip", "Notes", null, null, null, null,
                 Instant.parse("2026-09-12T00:00:00Z"), Instant.parse("2026-09-12T00:00:00Z"), 0, 0, 0);
     }
 }

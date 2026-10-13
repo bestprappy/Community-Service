@@ -20,9 +20,9 @@ public class PostController {
     @GetMapping
     public ResponseEntity<Page<PostResponse>> list(@CurrentUser UUID actor,
             @RequestParam(required = false) String group, @RequestParam(defaultValue = "") String q,
-            @RequestParam(defaultValue = "new") String sort, @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(posts.list(group, actor, q, sort, page, size));
+            @RequestParam(defaultValue = "new") String sort, @RequestParam(defaultValue = "false") boolean joined,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(posts.list(group, actor, joined, q, sort, page, size));
     }
 
     @GetMapping("/{id}")

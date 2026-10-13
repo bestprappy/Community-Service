@@ -42,6 +42,7 @@ public class GroupService {
                 r.getDescription(), r.getCountry(), r.getPlaces(), r.getTags(), r.getOfficial(), r.getStatus(),
                 r.getMemberCount(), r.getPostCount(), GroupAccessService.ACTIVE_STATES.contains(
                         r.getMembershipState() == null ? "" : r.getMembershipState()),
-                "muted".equals(r.getMembershipState()), r.getRole(), r.getCreatedAt(), r.getUpdatedAt()));
+                "muted".equals(r.getMembershipState()), r.getRole(), r.getIconMediaId(), r.getBannerMediaId(),
+                r.getCreatedAt(), r.getUpdatedAt()));
     }
 }

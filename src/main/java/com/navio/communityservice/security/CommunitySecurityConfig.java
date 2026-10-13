@@ -28,7 +28,7 @@ public class CommunitySecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/groups/mine").authenticated()
                         .requestMatchers(HttpMethod.GET, "/v1/posts", "/v1/posts/{id}", "/v1/posts/{id}/image", "/v1/posts/{id}/comments").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/v1/groups", "/v1/groups/search", "/v1/groups/{slug}", "/v1/groups/{slug}/banner").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/groups", "/v1/groups/search", "/v1/groups/{slug}", "/v1/groups/{slug}/banner", "/v1/groups/{slug}/icon").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o.jwt(j -> j.decoder(decoder))
                         .authenticationEntryPoint((r, s, e) -> error(s, mapper, HttpStatus.UNAUTHORIZED))
