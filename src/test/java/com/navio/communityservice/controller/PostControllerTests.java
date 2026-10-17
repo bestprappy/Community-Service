@@ -72,6 +72,29 @@ class PostControllerTests {
         verifyNoInteractions(posts);
     }
 
+    @Test void rejectsAnAttachmentThatIsNotAShareTokenBeforeAnyWrite() throws Exception {
+        for (String token : List.of("200", "trip-bangkok-food-loop", "../../v1/trips", "x".repeat(44))) {
+            mvc.perform(post("/v1/posts").with(jwt().jwt(j -> j.subject(USER.toString())))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(BODY.replace("}", ",\"sharedTripId\":\"" + token + "\"}")))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.validationErrors.sharedTripId").value("Choose a plan listed on Explore"));
+        }
+        verifyNoInteractions(posts);
+    }
+
+    @Test void anUnavailablePlanCheckReturnsTheServiceUnavailableContract() throws Exception {
+        String token = "Abcdefghijklmnopqrstuvwxyz0123456789_-ABCDE";
+        when(posts.create(eq(USER), any(), isNull())).thenThrow(new GroupException(
+                org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "Shared plans cannot be checked right now; try again shortly"));
+        mvc.perform(post("/v1/posts").with(jwt().jwt(j -> j.subject(USER.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY.replace("}", ",\"sharedTripId\":\"" + token + "\"}")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.message").value("Shared plans cannot be checked right now; try again shortly"));
+    }
+
     @Test void blankOrOversizedCommentEditsAreRejectedBeforeAnyWrite() throws Exception {
         for (String body : List.of("{\"body\":\" \"}", "{}", "{\"body\":\"" + "x".repeat(10001) + "\"}")) {
             mvc.perform(patch(BASE + "/comments/" + ID).with(jwt().jwt(j -> j.subject(USER.toString())))

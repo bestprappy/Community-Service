@@ -2,11 +2,13 @@ package com.navio.communityservice.service;
 
 import com.navio.communityservice.dto.*;
 import com.navio.communityservice.exception.GroupException;
+import com.navio.communityservice.integration.SharedPlanDirectory;
 import com.navio.communityservice.media.*;
 import com.navio.communityservice.model.Group;
 import com.navio.communityservice.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,6 +22,7 @@ public class PostService {
     private final GroupAccessService access;
     private final GroupFlairRepository flairs;
     private final PostPictureService pictures;
+    private final SharedPlanDirectory sharedPlans;
 
     public Page<PostResponse> list(String slug, UUID actor, String query, String sort, int page, int size) {
         return list(slug, actor, false, query, sort, page, size);
@@ -47,6 +50,8 @@ public class PostService {
 
     @Transactional
     public PostResponse create(UUID actor, CreatePostRequest r, MultipartFile file) {
+        // Checked before the group lock so a slow trip-planning answer never holds it.
+        requireAttachablePlan(r.sharedTripId());
         Group group = access.lock(r.groupSlug(), actor);
         access.requireActiveMember(group, actor);
         UUID id = r.requestId() == null ? UUID.randomUUID() : r.requestId();
@@ -108,6 +113,21 @@ public class PostService {
 
     public void requireAuthorOrModerator(UUID groupId, UUID author, UUID actor) {
         if (!author.equals(actor)) access.requireModerator(groupId, actor);
+    }
+
+    /** A post is public, so only a plan its owner listed on Explore may be attached. */
+    private void requireAttachablePlan(String token) {
+        if (token == null) return;
+        boolean listed;
+        try {
+            listed = sharedPlans.isListedOnExplore(token);
+        } catch (SharedPlanDirectory.SharedPlanDirectoryUnavailableException ex) {
+            throw new GroupException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Shared plans cannot be checked right now; try again shortly");
+        }
+        if (!listed) {
+            throw GroupException.invalid("That plan is no longer listed on Explore; choose another plan or post without one");
+        }
     }
 
     private PostResponse find(UUID id, UUID actor) { return posts.find(id, actor).orElseThrow(GroupException::notFound); }

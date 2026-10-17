@@ -2,6 +2,7 @@ package com.navio.communityservice.service;
 
 import com.navio.communityservice.dto.*;
 import com.navio.communityservice.exception.GroupException;
+import com.navio.communityservice.integration.SharedPlanDirectory;
 import com.navio.communityservice.media.PostPictureService;
 import com.navio.communityservice.model.Group;
 import com.navio.communityservice.repository.*;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import java.time.Instant;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
@@ -21,6 +23,7 @@ class PostServiceTests {
     @Mock GroupAccessService access;
     @Mock GroupFlairRepository flairs;
     @Mock PostPictureService pictures;
+    @Mock SharedPlanDirectory sharedPlans;
     @InjectMocks PostService service;
     private static final UUID AUTHOR = UUID.fromString("00000000-0000-4000-8000-000000000001");
     private static final UUID OTHER = UUID.fromString("00000000-0000-4000-8000-000000000002");
@@ -40,6 +43,41 @@ class PostServiceTests {
         assertThatThrownBy(() -> service.create(AUTHOR, new CreatePostRequest("trips", "Title", "", null, OTHER, null), null)).isInstanceOf(GroupException.class);
         verify(posts, never()).create(any(), any(), any(), any(), any(), any());
         verifyNoInteractions(pictures);
+    }
+
+    private static final String PLAN_TOKEN = "Abcdefghijklmnopqrstuvwxyz0123456789_-ABCDE";
+
+    @Test void aPlanThatIsNotListedOnExploreCannotBeAttached() {
+        when(sharedPlans.isListedOnExplore(PLAN_TOKEN)).thenReturn(false);
+        assertThatThrownBy(() -> service.create(AUTHOR, new CreatePostRequest("trips", "Title", "", null, null, PLAN_TOKEN), null))
+                .isInstanceOf(GroupException.class)
+                .extracting(ex -> ((GroupException) ex).getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        verifyNoInteractions(access, posts, pictures, flairs);
+    }
+
+    @Test void anUnreachableTripServiceRejectsTheAttachmentAsUnavailable() {
+        when(sharedPlans.isListedOnExplore(PLAN_TOKEN))
+                .thenThrow(new SharedPlanDirectory.SharedPlanDirectoryUnavailableException("down", null));
+        assertThatThrownBy(() -> service.create(AUTHOR, new CreatePostRequest("trips", "Title", "", null, null, PLAN_TOKEN), null))
+                .isInstanceOf(GroupException.class)
+                .extracting(ex -> ((GroupException) ex).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        verifyNoInteractions(access, posts, pictures);
+    }
+
+    @Test void aListedPlanIsStoredWithThePost() {
+        when(sharedPlans.isListedOnExplore(PLAN_TOKEN)).thenReturn(true);
+        when(access.lock("trips", AUTHOR)).thenReturn(group);
+        when(posts.find(any(), eq(AUTHOR))).thenReturn(Optional.empty(), Optional.of(response()));
+        var request = new CreatePostRequest("trips", "Title", "", null, null, PLAN_TOKEN);
+        service.create(AUTHOR, request, null);
+        verify(posts).create(any(), eq(ID), eq(AUTHOR), eq(request), isNull(), isNull());
+    }
+
+    @Test void postsWithoutAPlanNeverAskTripPlanning() {
+        when(access.lock("trips", AUTHOR)).thenReturn(group);
+        when(posts.find(any(), eq(AUTHOR))).thenReturn(Optional.empty(), Optional.of(response()));
+        service.create(AUTHOR, new CreatePostRequest("trips", "Title", "", null, null, null), null);
+        verifyNoInteractions(sharedPlans);
     }
 
     @Test void anotherMemberCannotRewriteTheAuthorsPost() {
