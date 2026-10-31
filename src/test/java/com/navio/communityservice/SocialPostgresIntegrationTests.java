@@ -37,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Following, blocking, profile posts and notifications through the real HTTP
  * stack against PostgreSQL, because the fan-out and visibility rules live in SQL.
  */
-@SpringBootTest
+@SpringBootTest(properties = "navio.notifications.legacy-plan-announcements.enabled=true")
 @AutoConfigureMockMvc
 @ActiveProfiles("postgres")
 @EnabledIfEnvironmentVariable(named = "COMMUNITY_TEST_DB_URL", matches = ".+")

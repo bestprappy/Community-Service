@@ -24,6 +24,10 @@ eureka:
     enabled: false
 
 navio:
+  notifications:
+    # Tests drive TripEventProcessor directly; no listener should reach for a broker.
+    trip-events:
+      enabled: false
   security:
     keycloak:
       issuer-uri: http://localhost:8180/realms/navio

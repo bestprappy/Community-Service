@@ -11,6 +11,11 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.Types;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -62,24 +67,37 @@ public class NotificationRepository {
                 + " ON CONFLICT (recipient_id, dedupe_key) DO NOTHING", new MapSqlParameterSource("follower", follower).addValue("followee", followee)) == 1;
     }
 
-    /** @return how many followers were notified */
-    public int notifyFollowersOfPost(UUID author, UUID postId) {
-        return jdbc.update("""
+    /** @return the followers who were notified */
+    public List<UUID> notifyFollowersOfPost(UUID author, UUID postId) {
+        return jdbc.queryForList("""
                 INSERT INTO notif.notifications(id, recipient_id, type, actor_id, post_id, dedupe_key)
                 SELECT gen_random_uuid(), f.follower_id, 'followed_post', :author, :post, 'post:' || CAST(:post AS TEXT)
                 """ + contentAudience("followed_post"),
                 new MapSqlParameterSource("author", author).addValue("post", postId)
-                        .addValue("burst", CONTENT_BURST_PER_HOUR));
+                        .addValue("burst", CONTENT_BURST_PER_HOUR).addValue("followedBy", null, Types.TIMESTAMP_WITH_TIMEZONE),
+                UUID.class);
     }
 
-    /** @return how many followers were notified */
-    public int notifyFollowersOfPlan(UUID author, String token, String title) {
-        return jdbc.update("""
+    /**
+     * Notifies the author's followers about a plan. Shares the {@code plan:<token>}
+     * dedupe key with every other path that announces the same plan, so a
+     * redelivered event or a repeated announcement notifies nobody twice.
+     *
+     * @param followedBy when set, only accounts that already followed the author at
+     *                   this instant are notified, so a delayed event never reaches
+     *                   someone who followed afterwards
+     * @return the followers who were notified
+     */
+    public List<UUID> notifyFollowersOfPlan(UUID author, String token, String title, Instant followedBy) {
+        return jdbc.queryForList("""
                 INSERT INTO notif.notifications(id, recipient_id, type, actor_id, plan_token, plan_title, dedupe_key)
                 SELECT gen_random_uuid(), f.follower_id, 'followed_plan', :author, :token, :title, 'plan:' || :token
                 """ + contentAudience("followed_plan"),
                 new MapSqlParameterSource("author", author).addValue("token", token).addValue("title", title)
-                        .addValue("burst", CONTENT_BURST_PER_HOUR));
+                        .addValue("burst", CONTENT_BURST_PER_HOUR)
+                        .addValue("followedBy", followedBy == null ? null : OffsetDateTime.ofInstant(followedBy, ZoneOffset.UTC),
+                                Types.TIMESTAMP_WITH_TIMEZONE),
+                UUID.class);
     }
 
     /** {@code preference} is one of two fixed column names, never caller input. */
@@ -87,6 +105,7 @@ public class NotificationRepository {
         return """
                 FROM social.user_follows f
                 WHERE f.followee_id = :author AND f.notify
+                  AND (CAST(:followedBy AS TIMESTAMPTZ) IS NULL OR f.created_at <= CAST(:followedBy AS TIMESTAMPTZ))
                   AND COALESCE((SELECT p.%s FROM notif.preferences p WHERE p.user_id = f.follower_id), TRUE)
                   AND %s
                   AND (SELECT COUNT(*) FROM notif.notifications r
@@ -94,6 +113,7 @@ public class NotificationRepository {
                          AND r.type IN ('followed_post', 'followed_plan')
                          AND r.created_at > now() - INTERVAL '1 hour') < :burst
                 ON CONFLICT (recipient_id, dedupe_key) DO NOTHING
+                RETURNING recipient_id
                 """.formatted(preference, NOT_BLOCKED.formatted("f.follower_id", ":author"));
     }
 
@@ -121,14 +141,18 @@ public class NotificationRepository {
                 """, new MapSqlParameterSource("recipient", recipient).addValue("id", id)) == 1;
     }
 
+    /**
+     * Marks everything the recipient had at this statement's snapshot as read.
+     * A notification committed concurrently is not in that snapshot and stays unread.
+     */
     public int markAllRead(UUID recipient) {
         return jdbc.update("UPDATE notif.notifications SET read_at = now() WHERE recipient_id = :recipient AND read_at IS NULL",
                 new MapSqlParameterSource("recipient", recipient));
     }
 
-    /** A block erases what the two accounts were notified about each other. */
-    public void deleteBetween(UUID a, UUID b) {
-        jdbc.update("""
+    /** A block erases what the two accounts were notified about each other. @return rows removed */
+    public int deleteBetween(UUID a, UUID b) {
+        return jdbc.update("""
                 DELETE FROM notif.notifications
                 WHERE (recipient_id = :a AND actor_id = :b) OR (recipient_id = :b AND actor_id = :a)
                 """, new MapSqlParameterSource("a", a).addValue("b", b));

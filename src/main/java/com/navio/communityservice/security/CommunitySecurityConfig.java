@@ -1,5 +1,6 @@
 package com.navio.communityservice.security;
 
+import jakarta.servlet.DispatcherType;
 import com.navio.communityservice.exception.ErrorResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +25,10 @@ public class CommunitySecurityConfig {
         return http.csrf(c -> c.disable()).cors(c -> c.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
+                        // An async re-dispatch belongs to a request that was already
+                        // authorised; the bearer filter does not run again for it, so
+                        // without this the live stream's completion is denied mid-response.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/groups/mine").authenticated()

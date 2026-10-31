@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,6 +36,7 @@ class SocialGraphServiceTests {
     @Mock SocialGraphRepository graph;
     @Mock NotificationRepository notifications;
     @Mock PostRepository posts;
+    @Mock InboxSignals signals;
     @InjectMocks SocialGraphService service;
 
     private static HttpStatus statusOf(Throwable error) {
@@ -80,6 +82,32 @@ class SocialGraphServiceTests {
         verify(graph).block(ME, THEM);
         verify(graph).removeFollowsBetween(ME, THEM);
         verify(notifications).deleteBetween(ME, THEM);
+    }
+
+    @Test
+    void aNewFollowerNotificationIsSignalledLiveToTheFollowedAccountOnly() {
+        when(graph.follow(ME, THEM)).thenReturn(true);
+        when(notifications.notifyNewFollower(ME, THEM)).thenReturn(true);
+        lenient().when(graph.connectionsVisibility(THEM)).thenReturn("everyone");
+        service.follow(ME, THEM);
+        verify(signals).created(java.util.Set.of(THEM));
+    }
+
+    @Test
+    void aFollowWhoseNotificationWasSuppressedSignalsNothing() {
+        when(graph.follow(ME, THEM)).thenReturn(true);
+        when(notifications.notifyNewFollower(ME, THEM)).thenReturn(false);
+        lenient().when(graph.connectionsVisibility(THEM)).thenReturn("everyone");
+        service.follow(ME, THEM);
+        verifyNoInteractions(signals);
+    }
+
+    @Test
+    void blockingThatErasedNotificationsTellsBothInboxesToRefresh() {
+        when(notifications.deleteBetween(ME, THEM)).thenReturn(2);
+        lenient().when(graph.connectionsVisibility(THEM)).thenReturn("everyone");
+        service.block(ME, THEM);
+        verify(signals).removed(java.util.Set.of(ME, THEM));
     }
 
     @Test

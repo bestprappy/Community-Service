@@ -45,6 +45,7 @@ public class SocialGraphService {
     private final SocialGraphRepository graph;
     private final NotificationRepository notifications;
     private final PostRepository posts;
+    private final InboxSignals signals;
 
     public SocialSummaryResponse summary(UUID target, UUID viewer) {
         boolean self = target.equals(viewer);
@@ -63,7 +64,9 @@ public class SocialGraphService {
         graph.lockPair(actor, target);
         if (actor.equals(target)) throw GroupException.invalid("You cannot follow yourself");
         if (graph.blockedEitherWay(actor, target)) throw GroupException.forbidden("You can't follow this account");
-        if (graph.follow(actor, target)) notifications.notifyNewFollower(actor, target);
+        if (graph.follow(actor, target) && notifications.notifyNewFollower(actor, target)) {
+            signals.created(java.util.Set.of(target));
+        }
         return summary(target, actor);
     }
 
@@ -89,7 +92,7 @@ public class SocialGraphService {
         if (actor.equals(target)) throw GroupException.invalid("You cannot block yourself");
         graph.block(actor, target);
         graph.removeFollowsBetween(actor, target);
-        notifications.deleteBetween(actor, target);
+        if (notifications.deleteBetween(actor, target) > 0) signals.removed(java.util.Set.of(actor, target));
         return summary(target, actor);
     }
 

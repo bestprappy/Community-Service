@@ -7,7 +7,7 @@ import com.navio.communityservice.exception.GroupException;
 import com.navio.communityservice.integration.SharedPlanDirectory;
 import com.navio.communityservice.integration.SharedPlanDirectory.ListedPlan;
 import com.navio.communityservice.repository.NotificationRepository;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
@@ -32,13 +32,24 @@ import java.util.stream.Collectors;
  * title or link.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 @Transactional(readOnly = true)
 public class NotificationService {
 
     private final NotificationRepository notifications;
     private final SharedPlanDirectory sharedPlans;
+    private final InboxSignals signals;
+    private final boolean legacyPlanAnnouncements;
+
+    public NotificationService(NotificationRepository notifications, SharedPlanDirectory sharedPlans,
+                               InboxSignals signals,
+                               @Value("${navio.notifications.legacy-plan-announcements.enabled:false}")
+                               boolean legacyPlanAnnouncements) {
+        this.notifications = notifications;
+        this.sharedPlans = sharedPlans;
+        this.signals = signals;
+        this.legacyPlanAnnouncements = legacyPlanAnnouncements;
+    }
 
     public Page<NotificationResponse> list(UUID recipient, boolean unreadOnly, int page, int size) {
         Page<NotificationResponse> result = notifications.list(recipient, unreadOnly, PostService.pagination(page, size));
@@ -62,12 +73,13 @@ public class NotificationService {
         if (!notifications.markRead(recipient, id)) {
             throw new GroupException(HttpStatus.NOT_FOUND, "Notification not found");
         }
+        signals.readStateChanged(recipient);
         return unreadCount(recipient);
     }
 
     @Transactional
     public UnreadCountResponse markAllRead(UUID recipient) {
-        notifications.markAllRead(recipient);
+        if (notifications.markAllRead(recipient) > 0) signals.readStateChanged(recipient);
         return unreadCount(recipient);
     }
 
@@ -84,7 +96,7 @@ public class NotificationService {
     /** Called inside the post's own transaction, so a rolled-back post notifies nobody. */
     @Transactional
     public void postPublished(UUID author, UUID postId) {
-        notifications.notifyFollowersOfPost(author, postId);
+        signals.created(notifications.notifyFollowersOfPost(author, postId));
     }
 
     /**
@@ -92,7 +104,17 @@ public class NotificationService {
      * announce a plan trip planning confirms they listed under their own name, and
      * the per-recipient dedupe key means repeating the call notifies nobody twice.
      *
-     * @return how many followers were notified
+     * <p>Legacy path for clients released before trip planning announced listings
+     * itself through {@code trip.events.v1}. It still verifies ownership and answers
+     * as before, but only fans out when
+     * {@code navio.notifications.legacy-plan-announcements.enabled} is set (the
+     * fallback if the trip outbox relay is ever switched off). Otherwise the event
+     * is the single writer: it applies the event-time audience this path cannot,
+     * because a browser call cannot say when the plan was listed. Both share the
+     * {@code plan:<token>} dedupe key, so enabling both never notifies anyone twice.
+     * Remove once no released client calls it.
+     *
+     * @return how many followers this call notified
      */
     @Transactional
     public int planShared(UUID author, String token) {
@@ -105,9 +127,12 @@ public class NotificationService {
         ListedPlan plan = listed.stream().filter(candidate -> token.equals(candidate.token())).findFirst()
                 .orElseThrow(() -> new GroupException(HttpStatus.NOT_FOUND,
                         "Only a plan you listed on Explore under your name can be announced"));
+        if (!legacyPlanAnnouncements) return 0;
         String title = plan.title() == null ? null : plan.title().strip();
         if (title != null && title.length() > 200) title = title.substring(0, 200);
-        return notifications.notifyFollowersOfPlan(author, token, title);
+        List<UUID> notified = notifications.notifyFollowersOfPlan(author, token, title, null);
+        signals.created(notified);
+        return notified.size();
     }
 
     /** Empty when trip planning cannot answer: the notification is then shown without its link. */
