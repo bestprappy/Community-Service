@@ -31,7 +31,11 @@ public class PostRepository {
             r.getString("link_url"), r.getObject("flair_id", UUID.class), r.getString("shared_trip_id"),
             r.getString("image_key") == null ? null : "/v1/posts/" + r.getString("id") + "/image",
             r.getTimestamp("created_at").toInstant(), r.getTimestamp("updated_at").toInstant(),
-            r.getInt("score"), r.getInt("comment_count"), r.getInt("viewer_vote"));
+            r.getInt("score"), r.getInt("comment_count"), r.getInt("viewer_vote"), r.getTimestamp("profile_pinned_at") != null);
+
+    /** Hides posts from accounts blocked in either direction with the viewer. */
+    private static final String NOT_BLOCKED_AUTHOR = " AND NOT EXISTS (SELECT 1 FROM social.user_blocks ub"
+            + " WHERE (ub.blocker_id = :actor AND ub.blocked_id = p.author_id) OR (ub.blocker_id = p.author_id AND ub.blocked_id = :actor))";
 
     public Optional<PostResponse> find(UUID id, UUID actor) {
         return jdbc.query(SELECT + FROM + " WHERE p.id=:id", params(actor).addValue("id", id), MAPPER).stream().findFirst();
@@ -43,6 +47,7 @@ public class PostRepository {
         if (groupId == null && joinedOnly) {
             where += " AND EXISTS (SELECT 1 FROM social.group_memberships m WHERE m.group_id=g.id AND m.user_id=:actor AND m.state='joined')";
         }
+        where += NOT_BLOCKED_AUTHOR;
         // Literal, escaped substring search. User input never becomes SQL syntax or a LIKE wildcard.
         where += " AND LOWER(p.title || ' ' || p.body || ' ' || g.name) LIKE :query ESCAPE '!'";
         var parameters = params(actor).addValue("groupId", groupId)
@@ -55,6 +60,33 @@ public class PostRepository {
         };
         Long total = jdbc.queryForObject("SELECT COUNT(*)" + FROM + where, parameters, Long.class);
         return new PageImpl<>(jdbc.query(SELECT + FROM + where + " ORDER BY " + order + " LIMIT :limit OFFSET :offset", parameters, MAPPER), page, total == null ? 0 : total);
+    }
+
+    /**
+     * One author's posts for their public profile: pinned first, then newest.
+     * Posts in hidden communities are never listed.
+     */
+    public Page<PostResponse> listByAuthor(UUID author, UUID actor, Pageable page) {
+        String where = " WHERE p.author_id = :author AND g.status <> 'hidden'";
+        var parameters = params(actor).addValue("author", author)
+                .addValue("limit", page.getPageSize()).addValue("offset", page.getOffset());
+        Long total = jdbc.queryForObject("SELECT COUNT(*)" + FROM + where, parameters, Long.class);
+        return new PageImpl<>(jdbc.query(SELECT + FROM + where
+                + " ORDER BY p.profile_pinned_at DESC NULLS LAST, p.created_at DESC, p.id LIMIT :limit OFFSET :offset",
+                parameters, MAPPER), page, total == null ? 0 : total);
+    }
+
+    public int countPinned(UUID author) {
+        Integer total = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM social.posts p JOIN social.groups g ON g.id = p.group_id
+                WHERE p.author_id = :author AND p.profile_pinned_at IS NOT NULL AND g.status <> 'hidden'
+                """, new MapSqlParameterSource("author", author), Integer.class);
+        return total == null ? 0 : total;
+    }
+
+    public void setPinned(UUID id, boolean pinned) {
+        jdbc.update("UPDATE social.posts SET profile_pinned_at = " + (pinned ? "COALESCE(profile_pinned_at, now())" : "NULL")
+                + " WHERE id = :id", Map.of("id", id));
     }
 
     public void create(UUID id, UUID groupId, UUID actor, CreatePostRequest r, String imageKey, String imageType) {

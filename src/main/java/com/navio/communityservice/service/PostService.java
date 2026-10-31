@@ -23,6 +23,11 @@ public class PostService {
     private final GroupFlairRepository flairs;
     private final PostPictureService pictures;
     private final SharedPlanDirectory sharedPlans;
+    private final SocialGraphService socialGraph;
+    private final NotificationService notifications;
+
+    /** Most posts an author can feature on their profile at once. */
+    public static final int MAX_PROFILE_PINS = 3;
 
     public Page<PostResponse> list(String slug, UUID actor, String query, String sort, int page, int size) {
         return list(slug, actor, false, query, sort, page, size);
@@ -73,6 +78,7 @@ public class PostService {
         var image = file == null ? null : pictures.upload(id, file);
         posts.create(id, group.getId(), actor, r, image == null ? null : image.key(), image == null ? null : image.contentType());
         group.setPostCount(group.getPostCount() + 1);
+        if ("active".equals(group.getStatus())) notifications.postPublished(actor, id);
         return find(id, actor);
     }
 
@@ -98,9 +104,39 @@ public class PostService {
 
     @Transactional
     public PostResponse vote(UUID id, UUID actor, int value) {
-        writable(id, actor);
+        var post = writable(id, actor);
+        socialGraph.requireCanInteract(actor, post.authorId());
         posts.vote(id, actor, value);
         return find(id, actor);
+    }
+
+    /**
+     * Features or un-features the author's own post on their public profile.
+     * Pinning is idempotent; at most {@link #MAX_PROFILE_PINS} posts are pinned.
+     */
+    @Transactional
+    public PostResponse pin(UUID id, UUID actor, boolean pinned) {
+        var post = read(id, actor);
+        if (!post.authorId().equals(actor)) throw GroupException.forbidden("Only the author can pin this post");
+        if (pinned && !post.pinnedOnProfile() && posts.countPinned(actor) >= MAX_PROFILE_PINS) {
+            throw GroupException.conflict("You can pin up to 3 posts; unpin one first");
+        }
+        posts.setPinned(id, pinned);
+        return find(id, actor);
+    }
+
+    /**
+     * A platform moderator's removal from the report queue. Takes the same group
+     * lock as an author's delete so the post count stays consistent.
+     */
+    @Transactional
+    public void removeByPlatformModerator(UUID id) {
+        var initial = posts.find(id, null).orElse(null);
+        if (initial == null) return;
+        Group group = access.lockForPlatform(initial.groupSlug());
+        pictures.deleteAfterCommit(id);
+        posts.delete(id);
+        group.setPostCount(Math.max(0, group.getPostCount() - 1));
     }
 
     /** All post/comment writers serialize with membership, status and moderation changes. */

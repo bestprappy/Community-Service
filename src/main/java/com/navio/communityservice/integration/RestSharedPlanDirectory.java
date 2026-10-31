@@ -51,10 +51,41 @@ public class RestSharedPlanDirectory implements SharedPlanDirectory {
         return factory;
     }
 
+    /**
+     * Calls trip planning directly on the internal network, so the gateway's
+     * identity header is supplied here: the author whose plans are being listed.
+     */
+    @Override
+    public java.util.List<ListedPlan> listedByAuthor(java.util.UUID author) {
+        try {
+            var result = new java.util.ArrayList<ListedPlan>();
+            for (int index = 0; index < 100; index++) {
+                ListedPlanPage page = restClientBuilder.clone().baseUrl(baseUrl().toString()).build()
+                        .get().uri("/v1/shared-plans/by-author/{author}?size=48&page={page}", author, index)
+                        .header("X-User-Id", author.toString()).retrieve().body(ListedPlanPage.class);
+                if (page == null || page.content() == null) return result;
+                for (var item : page.content()) if (item.plan() != null) result.add(item.plan());
+                if (page.last()) return result;
+            }
+            throw new SharedPlanDirectoryUnavailableException("Profile plan result exceeds safety limit", null);
+        } catch (RestClientException exception) {
+            throw new SharedPlanDirectoryUnavailableException("Trip planning is unreachable", exception);
+        }
+    }
+
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    record ListedPlanPage(java.util.List<ProfilePlan> content, boolean last) { }
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    record ProfilePlan(ListedPlan plan) { }
+
+    private URI baseUrl() {
+        return discoveryClient.getInstances(TRIP_PLANNING_SERVICE_ID).stream()
+                .findFirst().map(ServiceInstance::getUri).orElse(fallbackBaseUrl);
+    }
+
     @Override
     public boolean isListedOnExplore(String token) {
-        URI baseUrl = discoveryClient.getInstances(TRIP_PLANNING_SERVICE_ID).stream()
-                .findFirst().map(ServiceInstance::getUri).orElse(fallbackBaseUrl);
+        URI baseUrl = baseUrl();
         try {
             return restClientBuilder.clone().baseUrl(baseUrl.toString()).build()
                     .get().uri("/v1/shared-plans/{token}/summary", token)

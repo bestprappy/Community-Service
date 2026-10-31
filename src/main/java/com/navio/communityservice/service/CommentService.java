@@ -16,6 +16,7 @@ import java.util.UUID;
 public class CommentService {
     private final PostService posts;
     private final CommentRepository comments;
+    private final SocialGraphService socialGraph;
 
     public Page<CommentResponse> list(UUID postId, UUID actor, int page, int size) {
         posts.read(postId, actor);
@@ -24,9 +25,12 @@ public class CommentService {
 
     @Transactional
     public CommentResponse create(UUID postId, UUID actor, CreateCommentRequest r) {
-        posts.writable(postId, actor);
-        if (r.parentCommentId() != null && find(postId, r.parentCommentId(), actor).deleted()) {
-            throw GroupException.invalid("Cannot reply to a deleted comment");
+        var post = posts.writable(postId, actor);
+        socialGraph.requireCanInteract(actor, post.authorId());
+        if (r.parentCommentId() != null) {
+            var parent = find(postId, r.parentCommentId(), actor);
+            if (parent.deleted()) throw GroupException.invalid("Cannot reply to a deleted comment");
+            socialGraph.requireCanInteract(actor, parent.authorId());
         }
         UUID id = UUID.randomUUID();
         comments.create(id, postId, actor, r);
@@ -69,7 +73,9 @@ public class CommentService {
     @Transactional
     public CommentResponse vote(UUID postId, UUID id, UUID actor, int value) {
         posts.writable(postId, actor);
-        if (find(postId, id, actor).deleted()) throw GroupException.invalid("Cannot vote on a deleted comment");
+        var comment = find(postId, id, actor);
+        if (comment.deleted()) throw GroupException.invalid("Cannot vote on a deleted comment");
+        socialGraph.requireCanInteract(actor, comment.authorId());
         comments.vote(id, actor, value);
         return find(postId, id, actor);
     }
@@ -79,7 +85,9 @@ public class CommentService {
     public CommentResponse react(UUID postId, UUID id, UUID actor, String reaction) {
         var parsed = CommentReaction.parse(reaction);
         posts.writable(postId, actor);
-        if (find(postId, id, actor).deleted()) throw GroupException.invalid("Cannot react to a deleted comment");
+        var comment = find(postId, id, actor);
+        if (comment.deleted()) throw GroupException.invalid("Cannot react to a deleted comment");
+        socialGraph.requireCanInteract(actor, comment.authorId());
         comments.react(id, actor, parsed);
         return find(postId, id, actor);
     }

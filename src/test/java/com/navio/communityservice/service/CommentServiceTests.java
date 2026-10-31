@@ -18,6 +18,7 @@ import static org.mockito.Mockito.*;
 class CommentServiceTests {
     @Mock PostService posts;
     @Mock CommentRepository comments;
+    @Mock SocialGraphService socialGraph;
     @InjectMocks CommentService service;
     private static final UUID POST = UUID.fromString("00000000-0000-4000-8000-000000000001");
     private static final UUID USER = UUID.fromString("00000000-0000-4000-8000-000000000002");
@@ -27,6 +28,7 @@ class CommentServiceTests {
     private static final UUID GROUP = UUID.fromString("00000000-0000-4000-8000-000000000006");
 
     @Test void repliesCannotReferenceCommentsFromAnotherPost() {
+        when(posts.writable(POST, USER)).thenReturn(post());
         when(comments.find(POST, USER, USER)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.create(POST, USER, new CreateCommentRequest("Reply", USER))).isInstanceOf(GroupException.class);
         verify(comments, never()).create(any(), any(), any(), any());
@@ -123,6 +125,13 @@ class CommentServiceTests {
         service.unreact(POST, COMMENT, USER, "want_to_go");
         verify(comments).react(COMMENT, USER, CommentReaction.WANT_TO_GO);
         verify(comments).unreact(COMMENT, USER, CommentReaction.WANT_TO_GO);
+    }
+
+    @Test void membersBlockedByThePostAuthorCannotComment() {
+        when(posts.writable(POST, USER)).thenReturn(post());
+        doThrow(GroupException.forbidden("You can't interact with this account")).when(socialGraph).requireCanInteract(USER, OTHER);
+        assertThatThrownBy(() -> service.create(POST, USER, new CreateCommentRequest("Hi", null))).isInstanceOf(GroupException.class);
+        verify(comments, never()).create(any(), any(), any(), any());
     }
 
     private static CommentResponse comment(UUID id, UUID parent, UUID author, boolean deleted) {

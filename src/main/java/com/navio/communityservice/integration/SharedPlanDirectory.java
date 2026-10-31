@@ -14,6 +14,18 @@ public interface SharedPlanDirectory {
      */
     boolean isListedOnExplore(String token);
 
+    /**
+     * Plans this account listed on Explore under its own name, newest first. A
+     * plan listed anonymously (no byline) is never attributed to its owner here.
+     *
+     * @throws SharedPlanDirectoryUnavailableException when trip planning cannot answer
+     */
+    java.util.List<ListedPlan> listedByAuthor(java.util.UUID author);
+
+    /** The two facts a notification needs about a listed plan. */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    record ListedPlan(String token, String title) { }
+
     class SharedPlanDirectoryUnavailableException extends RuntimeException {
         public SharedPlanDirectoryUnavailableException(String message, Throwable cause) {
             super(message, cause);

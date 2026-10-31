@@ -82,6 +82,15 @@ public class CommentRepository {
     }
 
     /** Keeps the row as a placeholder so its replies stay attached to the thread. */
+    /** The facts a report needs about a comment, regardless of which post it is on. */
+    public record CommentOwner(UUID id, UUID postId, UUID authorId) { }
+
+    public Optional<CommentOwner> findAnyById(UUID id) {
+        return jdbc.query("SELECT id, post_id, author_id FROM social.comments WHERE id=:id AND NOT deleted", Map.of("id", id),
+                (r, n) -> new CommentOwner(r.getObject(1, UUID.class), r.getObject(2, UUID.class), r.getObject(3, UUID.class)))
+                .stream().findFirst();
+    }
+
     public void softDelete(UUID id) {
         jdbc.update("UPDATE social.comments SET body='',deleted=true,updated_at=now() WHERE id=:id", Map.of("id", id));
         jdbc.update("DELETE FROM social.comment_votes WHERE comment_id=:id", Map.of("id", id));

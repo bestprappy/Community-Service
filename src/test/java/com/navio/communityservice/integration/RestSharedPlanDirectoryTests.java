@@ -50,6 +50,23 @@ class RestSharedPlanDirectoryTests {
     }
 
     @Test
+    void profilePlansAreReadFromTheWrappedProfileShapeAcrossPagesWithTheAuthorsIdentity() {
+        var author = java.util.UUID.fromString("00000000-0000-4000-8000-000000000001");
+        String base = "http://trips.test/v1/shared-plans/by-author/" + author + "?size=48&page=";
+        server.expect(requestTo(base + "0"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.header("X-User-Id", author.toString()))
+                .andRespond(withSuccess("{\"content\":[{\"plan\":{\"token\":\"tokenA\",\"title\":\"Kyoto\",\"dayCount\":3},\"pinned\":true}],\"last\":false}",
+                        MediaType.APPLICATION_JSON));
+        server.expect(requestTo(base + "1"))
+                .andRespond(withSuccess("{\"content\":[{\"plan\":{\"token\":\"tokenB\",\"title\":\"Osaka\"},\"pinned\":false}],\"last\":true}",
+                        MediaType.APPLICATION_JSON));
+
+        assertThat(directory.listedByAuthor(author)).containsExactly(
+                new SharedPlanDirectory.ListedPlan("tokenA", "Kyoto"), new SharedPlanDirectory.ListedPlan("tokenB", "Osaka"));
+        server.verify();
+    }
+
+    @Test
     void aPlanWithoutAnExploreCardIsNotListed() {
         server.expect(requestTo(CARD_URL)).andRespond(withResourceNotFound());
 

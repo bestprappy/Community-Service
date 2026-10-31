@@ -50,6 +50,11 @@ public class GroupAccessService {
     public Group lock(String slug, UUID userId) {
         return visible(groups.lockBySlug(slug).orElseThrow(GroupException::notFound), userId);
     }
+    /** Row lock for platform moderation, which may act on hidden communities too. */
+    @Transactional
+    public Group lockForPlatform(String slug) {
+        return groups.lockBySlug(slug).orElseThrow(GroupException::notFound);
+    }
     private Group visible(Group group, UUID userId) {
         if ("hidden".equals(group.getStatus()) && !isOwner(group, userId)
                 && !isModerator(group.getId(), userId)) throw GroupException.notFound();

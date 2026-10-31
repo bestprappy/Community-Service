@@ -58,6 +58,18 @@ public class PostController {
         return ResponseEntity.ok(posts.vote(id, actor, request.value()));
     }
 
+    /** Features the caller's own post on their public profile. */
+    @PutMapping("/{id}/pin")
+    public ResponseEntity<PostResponse> pin(@PathVariable UUID id, @CurrentUser UUID actor) {
+        return ResponseEntity.ok(posts.pin(id, actor, true));
+    }
+
+    @DeleteMapping("/{id}/pin")
+    public ResponseEntity<Void> unpin(@PathVariable UUID id, @CurrentUser UUID actor) {
+        posts.pin(id, actor, false);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{id}/image")
     public ResponseEntity<byte[]> image(@PathVariable UUID id, @CurrentUser UUID actor) {
         var picture = posts.image(id, actor);

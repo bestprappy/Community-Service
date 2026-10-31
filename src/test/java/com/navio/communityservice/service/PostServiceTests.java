@@ -24,6 +24,8 @@ class PostServiceTests {
     @Mock GroupFlairRepository flairs;
     @Mock PostPictureService pictures;
     @Mock SharedPlanDirectory sharedPlans;
+    @Mock SocialGraphService socialGraph;
+    @Mock NotificationService notifications;
     @InjectMocks PostService service;
     private static final UUID AUTHOR = UUID.fromString("00000000-0000-4000-8000-000000000001");
     private static final UUID OTHER = UUID.fromString("00000000-0000-4000-8000-000000000002");
