@@ -18,7 +18,8 @@ public class PostRepository {
             SELECT p.*, g.slug AS group_slug, g.name AS group_name, gp.icon_media_id AS group_icon_media_id,
               COALESCE((SELECT SUM(v.value) FROM social.post_votes v WHERE v.post_id=p.id),0) AS score,
               (SELECT COUNT(*) FROM social.comments c WHERE c.post_id=p.id AND NOT c.deleted) AS comment_count,
-              COALESCE((SELECT v.value FROM social.post_votes v WHERE v.post_id=p.id AND v.user_id=:actor),0) AS viewer_vote
+              COALESCE((SELECT v.value FROM social.post_votes v WHERE v.post_id=p.id AND v.user_id=:actor),0) AS viewer_vote,
+              EXISTS(SELECT 1 FROM social.saved_posts sp WHERE sp.post_id=p.id AND sp.user_id=:actor) AS saved
             """;
     /** "Best": votes plus half-weighted discussion, decayed by age in hours so new activity can surface. */
     private static final String HOT = """
@@ -31,7 +32,7 @@ public class PostRepository {
             r.getString("link_url"), r.getObject("flair_id", UUID.class), r.getString("shared_trip_id"),
             r.getString("image_key") == null ? null : "/v1/posts/" + r.getString("id") + "/image",
             r.getTimestamp("created_at").toInstant(), r.getTimestamp("updated_at").toInstant(),
-            r.getInt("score"), r.getInt("comment_count"), r.getInt("viewer_vote"), r.getTimestamp("profile_pinned_at") != null);
+            r.getInt("score"), r.getInt("comment_count"), r.getInt("viewer_vote"), r.getTimestamp("profile_pinned_at") != null, r.getBoolean("saved"));
 
     /** Hides posts from accounts blocked in either direction with the viewer. */
     private static final String NOT_BLOCKED_AUTHOR = " AND NOT EXISTS (SELECT 1 FROM social.user_blocks ub"
@@ -116,6 +117,40 @@ public class PostRepository {
         if (value == 0) jdbc.update("DELETE FROM social.post_votes WHERE post_id=:id AND user_id=:actor", parameters);
         else jdbc.update("INSERT INTO social.post_votes(post_id,user_id,value) VALUES(:id,:actor,:value) ON CONFLICT(post_id,user_id) DO UPDATE SET value=EXCLUDED.value", parameters);
     }
+
+    /** Private collections reuse the feed projection and the same visibility rules as direct reads. */
+    public Page<PostLibraryEntry> library(UUID actor, String view, String vote, String query, String sort, Pageable page) {
+        String join, activity, extra="", commentId="NULL::uuid", commentBody="NULL::text";
+        switch(view) {
+            case "saved" -> { join=" JOIN social.saved_posts l ON l.post_id=p.id AND l.user_id=:actor "; activity="l.saved_at"; }
+            case "history" -> { join=" JOIN social.post_visits l ON l.post_id=p.id AND l.user_id=:actor "; activity="l.opened_at"; extra=" AND l.opened_at > now()-interval '30 days'"; }
+            case "comments" -> { join=" JOIN social.comments l ON l.post_id=p.id AND l.author_id=:actor AND NOT l.deleted "; activity="l.created_at"; commentId="l.id"; commentBody="l.body"; }
+            default -> { join=" JOIN social.post_votes l ON l.post_id=p.id AND l.user_id=:actor "; activity="p.created_at"; extra=vote.equals("all")?"":" AND l.value="+(vote.equals("up")?"1":"-1"); }
+        }
+        String where=" WHERE (g.status<>'hidden' OR g.owner_user_id=:actor OR EXISTS(SELECT 1 FROM social.group_memberships m WHERE m.group_id=g.id AND m.user_id=:actor AND m.role IN ('admin','moderator') AND m.state IN ('joined','muted')))"
+                +NOT_BLOCKED_AUTHOR+extra+" AND LOWER(p.title || ' ' || p.body || ' ' || g.name || ' ' || COALESCE("+commentBody+",'')) LIKE :query ESCAPE '!'";
+        var parameters=params(actor).addValue("query","%"+query.toLowerCase(Locale.ROOT).replace("!","!!").replace("%","!%").replace("_","!_")+"%")
+                .addValue("limit",page.getPageSize()).addValue("offset",page.getOffset());
+        String order=sort.equals("top")?"score DESC, ":"";
+        order+=activity+(sort.equals("oldest")?" ASC":" DESC")+", p.id, "+commentId;
+        Long total=jdbc.queryForObject("SELECT COUNT(*)"+FROM+join+where,parameters,Long.class);
+        String projection=SELECT.stripTrailing()+", "+activity+" AS activity_at, "+commentId+" AS library_comment_id, "+commentBody+" AS library_comment_body ";
+        var rows=jdbc.query(projection+FROM+join+where+" ORDER BY "+order+" LIMIT :limit OFFSET :offset",parameters,
+            (r,n)->new PostLibraryEntry(MAPPER.mapRow(r,n),r.getTimestamp("activity_at").toInstant(),r.getObject("library_comment_id",UUID.class),r.getString("library_comment_body")));
+        return new PageImpl<>(rows,page,total==null?0:total);
+    }
+    public void savePost(UUID actor, UUID post) {
+        jdbc.update("INSERT INTO social.saved_posts(user_id,post_id) VALUES(:actor,:post) ON CONFLICT DO NOTHING",params(actor).addValue("post",post));
+    }
+    public void unsavePost(UUID actor, UUID post) {
+        jdbc.update("DELETE FROM social.saved_posts WHERE user_id=:actor AND post_id=:post",params(actor).addValue("post",post));
+    }
+    public void recordVisit(UUID actor, UUID post) {
+        jdbc.update("INSERT INTO social.post_visits(user_id,post_id) VALUES(:actor,:post) ON CONFLICT(user_id,post_id) DO UPDATE SET opened_at=now()",params(actor).addValue("post",post));
+        jdbc.update("DELETE FROM social.post_visits WHERE user_id=:actor AND opened_at<=now()-interval '30 days'",params(actor));
+    }
+    public void expireVisits() { jdbc.getJdbcTemplate().update("DELETE FROM social.post_visits WHERE opened_at<=now()-interval '30 days'"); }
+    public void clearVisits(UUID actor) { jdbc.update("DELETE FROM social.post_visits WHERE user_id=:actor",params(actor)); }
 
     private MapSqlParameterSource params(UUID actor) { return new MapSqlParameterSource().addValue("actor", actor, java.sql.Types.OTHER); }
 }

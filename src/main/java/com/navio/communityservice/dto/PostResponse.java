@@ -10,7 +10,14 @@ import java.util.UUID;
  */
 public record PostResponse(UUID id, UUID groupId, String groupSlug, String groupName, UUID groupIconMediaId, UUID authorId,
         String title, String body, String linkUrl, UUID flairId, String sharedTripId, String imageUrl,
-        Instant createdAt, Instant updatedAt, int upvotes, int commentCount, int viewerVote, boolean pinnedOnProfile) {
+        Instant createdAt, Instant updatedAt, int upvotes, int commentCount, int viewerVote, boolean pinnedOnProfile, boolean saved) {
+
+    public PostResponse(UUID id, UUID groupId, String groupSlug, String groupName, UUID groupIconMediaId, UUID authorId,
+            String title, String body, String linkUrl, UUID flairId, String sharedTripId, String imageUrl,
+            Instant createdAt, Instant updatedAt, int upvotes, int commentCount, int viewerVote, boolean pinnedOnProfile) {
+        this(id,groupId,groupSlug,groupName,groupIconMediaId,authorId,title,body,linkUrl,flairId,sharedTripId,imageUrl,
+                createdAt,updatedAt,upvotes,commentCount,viewerVote,pinnedOnProfile,false);
+    }
 
     public PostResponse(UUID id, UUID groupId, String groupSlug, String groupName, UUID groupIconMediaId, UUID authorId,
             String title, String body, String linkUrl, UUID flairId, String sharedTripId, String imageUrl,
