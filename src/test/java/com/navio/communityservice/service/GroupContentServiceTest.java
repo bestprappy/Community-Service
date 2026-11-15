@@ -4,6 +4,7 @@ import com.navio.communityservice.model.*;
 import com.navio.communityservice.repository.*;
 import org.junit.jupiter.api.Test;
 import java.util.*;
+import org.mockito.ArgumentCaptor;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 class GroupContentServiceTest {
@@ -28,5 +29,23 @@ class GroupContentServiceTest {
         assertThat(profile.getBannerUrl()).isNull();
         assertThat(group.getCountry()).isEqualTo("Vietnam");
         verify(access, times(2)).requireContentEditor(group, user);
+    }
+    @SuppressWarnings("unchecked")
+    @Test void flairsSaveAsPostFlairsWithTheirPaletteColorOrTheColorTheirToneStoodFor() {
+        var access = mock(GroupAccessService.class);
+        var flairs = mock(GroupFlairRepository.class);
+        var service = new GroupContentService(access, mock(GroupProfileRepository.class), mock(GroupRuleRepository.class),
+                flairs, mock(GroupResourceRepository.class), mock(GroupViewService.class), mock(GroupMediaRepository.class), mock(com.navio.communityservice.media.GroupPictureService.class));
+        UUID id = UUID.randomUUID(), user = UUID.randomUUID();
+        when(access.lock("ev", user)).thenReturn(Group.builder().id(id).slug("ev").status("active").build());
+        service.replaceFlairs("ev", user, new ReplaceFlairsRequest(List.of(
+                new FlairRequest(null, "Charging", null, "violet"),
+                new FlairRequest("post", "Question", "question", null),
+                new FlairRequest(null, "Plain", null, null))));
+        ArgumentCaptor<List<GroupFlair>> saved = ArgumentCaptor.forClass(List.class);
+        verify(flairs).saveAll(saved.capture());
+        assertThat(saved.getValue()).extracting(GroupFlair::getFlairType).containsOnly("post");
+        assertThat(saved.getValue()).extracting(GroupFlair::getColorId).containsExactly("violet", "blue", "teal");
+        assertThat(saved.getValue()).extracting(GroupFlair::getTone).containsExactly("reliable", "question", "reliable");
     }
 }

@@ -17,6 +17,7 @@ public class GroupFlair {
     @Column(nullable = false, length = 20) private String flairType;
     @Column(nullable = false, length = 80) private String label;
     @Column(nullable = false, length = 30) private String tone;
+    @Column(length = 40) private String colorId;
     @Column(nullable = false) private int displayOrder;
 
     @Column(nullable = false, updatable = false) private Instant createdAt;

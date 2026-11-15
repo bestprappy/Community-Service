@@ -70,6 +70,13 @@ class GroupControllerTest {
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(content);
     }
+    @Test void flairsRejectColorsThatAreNotPaletteIds() throws Exception {
+        mvc.perform(put("/v1/groups/ev/flairs").with(jwt().jwt(j -> j.subject(user.toString()))).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"flairs\":[{\"label\":\"EV\",\"colorId\":\"#ff0000\"}]}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.validationErrors['flairs[0].colorId']").value("Choose a color from the palette."));
+        verifyNoInteractions(content);
+    }
     @Test void duplicateSlugConstraintMapsTo409WithoutLeakingSql() throws Exception {
         var cause = new org.hibernate.exception.ConstraintViolationException("secret SQL", new SQLException("secret"), "groups_slug_key");
         when(groups.create(eq(user), any())).thenThrow(new DataIntegrityViolationException("secret SQL", cause));
