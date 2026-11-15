@@ -55,7 +55,7 @@ public class GlobalExceptionHandler {
     }
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
     ResponseEntity<ErrorResponse> oversized(Exception ex, HttpServletRequest request) {
-        return response(HttpStatus.PAYLOAD_TOO_LARGE, "Picture must be at most 5 MiB", null, request);
+        return response(HttpStatus.PAYLOAD_TOO_LARGE, "Pictures must be at most 5 MiB each and 20 MiB together", null, request);
     }
     @ExceptionHandler(org.springframework.web.multipart.support.MissingServletRequestPartException.class)
     ResponseEntity<ErrorResponse> missingFile(Exception ex, HttpServletRequest request) {

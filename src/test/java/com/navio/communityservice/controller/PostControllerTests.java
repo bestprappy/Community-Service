@@ -62,6 +62,30 @@ class PostControllerTests {
         verify(posts).create(eq(USER), argThat(r -> r.groupSlug().equals("trips")), any());
     }
 
+    @Test void passesEveryPicturePartToTheServiceInOrder() throws Exception {
+        when(posts.create(eq(USER), any(), any())).thenReturn(response());
+        mvc.perform(multipart("/v1/posts").file(new MockMultipartFile("post", "post.json", "application/json", BODY.getBytes()))
+                        .file(new MockMultipartFile("file", "first.png", "image/png", new byte[]{1}))
+                        .file(new MockMultipartFile("file", "second.jpg", "image/jpeg", new byte[]{2}))
+                        .with(jwt().jwt(j -> j.subject(USER.toString()))))
+                .andExpect(status().isCreated());
+        verify(posts).create(eq(USER), any(), argThat(files -> files.size() == 2
+                && "first.png".equals(files.get(0).getOriginalFilename()) && "second.jpg".equals(files.get(1).getOriginalFilename())));
+    }
+
+    @Test void guestsReadGalleryPicturesByPosition() throws Exception {
+        when(posts.image(ID, 2, null)).thenReturn(new PictureValidator.Picture(new byte[]{1, 2, 3}, "image/jpeg"));
+        mvc.perform(get(BASE + "/images/2").header("X-User-Id", USER)).andExpect(status().isOk())
+                .andExpect(content().contentType("image/jpeg")).andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(content().bytes(new byte[]{1, 2, 3}));
+        verify(posts).image(ID, 2, null);
+    }
+
+    @Test void aMissingGalleryPositionIsNotFound() throws Exception {
+        when(posts.image(ID, 7, null)).thenThrow(GroupException.notFound());
+        mvc.perform(get(BASE + "/images/7")).andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404));
+    }
+
     @Test void rejectsInvalidPostsBeforeAnyWrite() throws Exception {
         for (String body : List.of(BODY.replace("A trip", " "), BODY.replace("Notes", "x".repeat(40001)),
                 BODY.replace("\"Notes\"", "null"), BODY.replace("\"body\"", "\"linkUrl\":\"javascript:alert(1)\",\"body\""))) {
