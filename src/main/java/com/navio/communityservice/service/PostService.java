@@ -28,6 +28,8 @@ public class PostService {
 
     /** Most posts an author can feature on their profile at once. */
     public static final int MAX_PROFILE_PINS = 3;
+    /** Most pictures one post's gallery holds; mirrors the post_images position check. */
+    public static final int MAX_PICTURES = 10;
 
     public Page<PostResponse> list(String slug, UUID actor, String query, String sort, int page, int size) {
         return list(slug, actor, false, query, sort, page, size);
@@ -49,12 +51,18 @@ public class PostService {
     }
 
     public PictureValidator.Picture image(UUID id, UUID actor) {
+        return image(id, 0, actor);
+    }
+
+    public PictureValidator.Picture image(UUID id, int position, UUID actor) {
         read(id, actor);
-        return pictures.read(id);
+        return pictures.read(id, position);
     }
 
     @Transactional
-    public PostResponse create(UUID actor, CreatePostRequest r, MultipartFile file) {
+    public PostResponse create(UUID actor, CreatePostRequest r, List<MultipartFile> files) {
+        var uploads = files == null ? List.<MultipartFile>of() : files;
+        if (uploads.size() > MAX_PICTURES) throw GroupException.invalid("A post can have at most " + MAX_PICTURES + " pictures");
         // Checked before the group lock so a slow trip-planning answer never holds it.
         requireAttachablePlan(r.sharedTripId());
         Group group = access.lock(r.groupSlug(), actor);
@@ -66,7 +74,7 @@ public class PostService {
             if (!saved.authorId().equals(actor) || !saved.groupId().equals(group.getId())
                     || !saved.title().equals(r.title().strip()) || !saved.body().equals(r.body().strip())
                     || !Objects.equals(saved.linkUrl(), r.linkUrl()) || !Objects.equals(saved.flairId(), r.flairId())
-                    || !Objects.equals(saved.sharedTripId(), r.sharedTripId()) || (saved.imageUrl() != null) != (file != null)) {
+                    || !Objects.equals(saved.sharedTripId(), r.sharedTripId()) || saved.imageUrls().size() != uploads.size()) {
                 throw GroupException.conflict("This publish request was already used; start a new post");
             }
             return saved;
@@ -75,8 +83,8 @@ public class PostService {
                 .filter(f -> group.getId().equals(f.getGroupId()) && "post".equals(f.getFlairType())).isEmpty()) {
             throw GroupException.invalid("Select a post flair from this community");
         }
-        var image = file == null ? null : pictures.upload(id, file);
-        posts.create(id, group.getId(), actor, r, image == null ? null : image.key(), image == null ? null : image.contentType());
+        var images = uploads.stream().map(file -> pictures.upload(id, file)).toList();
+        posts.create(id, group.getId(), actor, r, images);
         group.setPostCount(group.getPostCount() + 1);
         if ("active".equals(group.getStatus())) notifications.postPublished(actor, id);
         return find(id, actor);

@@ -1,6 +1,7 @@
 package com.navio.communityservice.controller;
 
 import com.navio.communityservice.dto.*;
+import com.navio.communityservice.media.PictureValidator;
 import com.navio.communityservice.security.CurrentUser;
 import com.navio.communityservice.service.PostService;
 import jakarta.validation.Valid;
@@ -9,6 +10,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -37,8 +39,8 @@ public class PostController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<PostResponse> createWithImage(@CurrentUser UUID actor,
-            @Valid @RequestPart("post") CreatePostRequest request, @RequestPart("file") MultipartFile file) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(posts.create(actor, request, file));
+            @Valid @RequestPart("post") CreatePostRequest request, @RequestPart("file") List<MultipartFile> files) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(posts.create(actor, request, files));
     }
 
     @PatchMapping("/{id}")
@@ -70,9 +72,18 @@ public class PostController {
         return ResponseEntity.noContent().build();
     }
 
+    /** The first picture; kept for clients that predate galleries. */
     @GetMapping("/{id}/image")
     public ResponseEntity<byte[]> image(@PathVariable UUID id, @CurrentUser UUID actor) {
-        var picture = posts.image(id, actor);
+        return picture(posts.image(id, actor));
+    }
+
+    @GetMapping("/{id}/images/{position}")
+    public ResponseEntity<byte[]> galleryImage(@PathVariable UUID id, @PathVariable int position, @CurrentUser UUID actor) {
+        return picture(posts.image(id, position, actor));
+    }
+
+    private static ResponseEntity<byte[]> picture(PictureValidator.Picture picture) {
         return ResponseEntity.ok().contentType(MediaType.parseMediaType(picture.contentType()))
                 .cacheControl(CacheControl.noStore()).header("X-Content-Type-Options", "nosniff")
                 .contentLength(picture.bytes().length).body(picture.bytes());

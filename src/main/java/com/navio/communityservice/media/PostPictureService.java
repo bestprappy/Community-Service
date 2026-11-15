@@ -27,15 +27,17 @@ public class PostPictureService {
         return new PostRepository.ImageAsset(key, picture.contentType());
     }
 
-    public PictureValidator.Picture read(UUID postId) {
-        var asset = posts.image(postId).orElseThrow(GroupException::notFound);
+    public PictureValidator.Picture read(UUID postId, int position) {
+        var asset = posts.image(postId, position).orElseThrow(GroupException::notFound);
         return new PictureValidator.Picture(storage.get(asset.key()), asset.contentType());
     }
 
     public void deleteAfterCommit(UUID postId) {
-        posts.image(postId).ifPresent(asset -> TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() { cleanup(asset.key()); }
-        }));
+        var keys = posts.imageKeys(postId);
+        if (keys.isEmpty()) return;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() { keys.forEach(PostPictureService.this::cleanup); }
+        });
     }
 
     private void cleanup(String key) {

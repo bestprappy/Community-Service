@@ -98,6 +98,59 @@ class PostPostgresIntegrationTests {
         assertThat(jdbc.queryForObject("SELECT post_count FROM social.groups WHERE id=?",Integer.class,groupId)).isZero();
     }
 
+    private byte[] picture(int width, String format) throws IOException {
+        var out = new ByteArrayOutputStream(); ImageIO.write(new BufferedImage(width,3,BufferedImage.TYPE_INT_RGB),format,out); return out.toByteArray();
+    }
+
+    @Test void galleriesKeepTheirOrderAndAreRemovedWithThePost() throws Exception {
+        String body = json.writeValueAsString(Map.of("groupSlug",slug,"title","Gallery","body",""));
+        var post = json.readTree(mvc.perform(multipart("/v1/posts")
+                .file(new MockMultipartFile("post","post.json","application/json",body.getBytes()))
+                .file(new MockMultipartFile("file","one.png","image/png",picture(4,"png")))
+                .file(new MockMultipartFile("file","two.jpg","image/jpeg",picture(5,"jpeg")))
+                .file(new MockMultipartFile("file","three.png","image/png",picture(6,"png")))
+                .with(jwt().jwt(j -> j.subject(owner.toString()))))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        String id = post.get("id").asText(), path = "/v1/posts/" + id;
+        assertThat(post.get("imageUrls").size()).isEqualTo(3);
+        assertThat(post.get("imageUrls").get(2).asText()).isEqualTo(path + "/images/2");
+        assertThat(post.get("imageUrl").asText()).isEqualTo(path + "/image");
+        assertThat(objects).hasSize(3);
+        int[] widths = {4, 5, 6};
+        for (int position = 0; position < 3; position++) {
+            byte[] image = mvc.perform(get(path + "/images/" + position)).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+            assertThat(ImageIO.read(new ByteArrayInputStream(image)).getWidth()).isEqualTo(widths[position]);
+        }
+        mvc.perform(get(path + "/images/1")).andExpect(content().contentType("image/jpeg"));
+        byte[] cover = mvc.perform(get(path + "/image")).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        assertThat(ImageIO.read(new ByteArrayInputStream(cover)).getWidth()).isEqualTo(4);
+        mvc.perform(get(path + "/images/3")).andExpect(status().isNotFound());
+        mvc.perform(get("/v1/posts").param("group",slug)).andExpect(jsonPath("$.content[0].imageUrls.length()").value(3));
+        mvc.perform(delete(path).with(jwt().jwt(j -> j.subject(owner.toString())))).andExpect(status().isNoContent());
+        assertThat(objects).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM social.post_images WHERE post_id=?::uuid",Integer.class,id)).isZero();
+    }
+
+    @Test void aPostSavedWithoutGalleryRowsStillShowsItsCover() throws Exception {
+        String id = create("Legacy cover",true).get("id").asText(), path = "/v1/posts/" + id;
+        jdbc.update("DELETE FROM social.post_images WHERE post_id=?::uuid", id);
+        mvc.perform(get(path)).andExpect(jsonPath("$.imageUrls.length()").value(1))
+                .andExpect(jsonPath("$.imageUrls[0]").value(path + "/images/0"));
+        mvc.perform(get(path + "/images/0")).andExpect(status().isOk()).andExpect(content().contentType("image/png"));
+        mvc.perform(delete(path).with(jwt().jwt(j -> j.subject(owner.toString())))).andExpect(status().isNoContent());
+        assertThat(objects).isEmpty();
+    }
+
+    @Test void elevenPicturesAreRejectedWithoutStoringAnything() throws Exception {
+        String body = json.writeValueAsString(Map.of("groupSlug",slug,"title","Too many","body",""));
+        var request = multipart("/v1/posts").file(new MockMultipartFile("post","post.json","application/json",body.getBytes()));
+        for (int i = 0; i < 11; i++) request.file(new MockMultipartFile("file","p"+i+".png","image/png",picture()));
+        mvc.perform(request.with(jwt().jwt(j -> j.subject(owner.toString()))))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
+        assertThat(objects).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT post_count FROM social.groups WHERE id=?",Integer.class,groupId)).isZero();
+    }
+
     @Test void nonmembersAndOtherAuthorsCannotMutatePosts() throws Exception {
         String path = "/v1/posts/"+create("Ownership",false).get("id").asText();
         mvc.perform(post("/v1/posts").with(jwt().jwt(j -> j.subject(member.toString()))).contentType(MediaType.APPLICATION_JSON)
