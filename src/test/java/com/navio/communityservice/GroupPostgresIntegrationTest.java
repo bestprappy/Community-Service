@@ -116,9 +116,11 @@ class GroupPostgresIntegrationTest {
                 .content("{\"flairs\":[{\"flairType\":\"post\",\"label\":\"EV\",\"tone\":\"ev\"},{\"flairType\":\"user\",\"label\":\"Driver\",\"tone\":\"reliable\"}]}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.postFlairs.length()").value(1)).andExpect(jsonPath("$.userFlairs.length()").value(1));
         mvc.perform(put(path+"/flairs").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"flairs\":[{\"label\":\"Charging\",\"colorId\":\"violet\"},{\"flairType\":\"post\",\"label\":\"Food\",\"tone\":\"food\"}]}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.postFlairs[0].colorId").value("violet"))
-                .andExpect(jsonPath("$.postFlairs[1].colorId").value("coral")).andExpect(jsonPath("$.userFlairs").isEmpty());
+                .content("{\"flairs\":[{\"label\":\"Charging\",\"color\":\"#FF7A00\",\"textColor\":\"black\"},{\"label\":\"Older\",\"colorId\":\"violet\"},{\"flairType\":\"post\",\"label\":\"Food\",\"tone\":\"food\"}]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.postFlairs[0].color").value("#ff7a00"))
+                .andExpect(jsonPath("$.postFlairs[0].textColor").value("black"))
+                .andExpect(jsonPath("$.postFlairs[1].color").value("#8654cc"))
+                .andExpect(jsonPath("$.postFlairs[2].color").value("#f0584b")).andExpect(jsonPath("$.postFlairs[2].textColor").value("white")).andExpect(jsonPath("$.userFlairs").isEmpty());
         mvc.perform(put(path+"/resources").with(jwt().jwt(j -> j.subject(a.toString()))).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"resources\":[{\"label\":\"Map\",\"url\":\"https://example.com/map\"}]}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.resources[0].displayOrder").value(0));
