@@ -31,7 +31,7 @@ class GroupContentServiceTest {
         verify(access, times(2)).requireContentEditor(group, user);
     }
     @SuppressWarnings("unchecked")
-    @Test void flairsSaveAsPostFlairsWithTheirPaletteColorOrTheColorTheirToneStoodFor() {
+    @Test void flairsSaveAnyColorAndTextOrTheColorTheirPaletteIdOrToneStoodFor() {
         var access = mock(GroupAccessService.class);
         var flairs = mock(GroupFlairRepository.class);
         var service = new GroupContentService(access, mock(GroupProfileRepository.class), mock(GroupRuleRepository.class),
@@ -39,13 +39,15 @@ class GroupContentServiceTest {
         UUID id = UUID.randomUUID(), user = UUID.randomUUID();
         when(access.lock("ev", user)).thenReturn(Group.builder().id(id).slug("ev").status("active").build());
         service.replaceFlairs("ev", user, new ReplaceFlairsRequest(List.of(
-                new FlairRequest(null, "Charging", null, "violet"),
-                new FlairRequest("post", "Question", "question", null),
-                new FlairRequest(null, "Plain", null, null))));
+                new FlairRequest(null, "Charging", null, null, "#FF7A00", "black"),
+                new FlairRequest(null, "Older client", null, "violet", null, null),
+                new FlairRequest("post", "Question", "question", null, null, null),
+                new FlairRequest(null, "Plain", null, null, null, null))));
         ArgumentCaptor<List<GroupFlair>> saved = ArgumentCaptor.forClass(List.class);
         verify(flairs).saveAll(saved.capture());
         assertThat(saved.getValue()).extracting(GroupFlair::getFlairType).containsOnly("post");
-        assertThat(saved.getValue()).extracting(GroupFlair::getColorId).containsExactly("violet", "blue", "teal");
-        assertThat(saved.getValue()).extracting(GroupFlair::getTone).containsExactly("reliable", "question", "reliable");
+        assertThat(saved.getValue()).extracting(GroupFlair::getColorHex).containsExactly("#ff7a00", "#8654cc", "#008cdf", "#00ae84");
+        assertThat(saved.getValue()).extracting(GroupFlair::getTextColor).containsExactly("black", "white", "white", "white");
+        assertThat(saved.getValue()).extracting(GroupFlair::getTone).containsExactly("reliable", "reliable", "question", "reliable");
     }
 }

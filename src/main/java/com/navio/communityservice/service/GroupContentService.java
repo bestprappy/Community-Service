@@ -80,7 +80,9 @@ public class GroupContentService {
             return GroupFlair.builder().groupId(g.getId()).label(GroupValues.required(r.label(), "label"))
                     .flairType(r.flairType() == null ? "post" : r.flairType())
                     .tone(r.tone() == null ? FlairColors.DEFAULT_TONE : r.tone())
-                    .colorId(FlairColors.resolve(r.colorId(), r.tone())).displayOrder(i).build();
+                    .colorId(FlairColors.resolveId(r.colorId(), r.tone()))
+                    .colorHex(FlairColors.resolveHex(r.color(), r.colorId(), r.tone()))
+                    .textColor(FlairColors.resolveText(r.textColor())).displayOrder(i).build();
         }).toList();
         flairs.deleteAllByGroupId(g.getId());
         flairs.saveAll(rows);
