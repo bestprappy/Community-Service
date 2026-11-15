@@ -47,6 +47,34 @@ class PostServiceTests {
         verifyNoInteractions(pictures);
     }
 
+    private PostResponse postBy(UUID author) {
+        return new PostResponse(OTHER, ID, "trips", "Trips", null, author, "Title", "", null, null, null, null,
+                Instant.EPOCH, Instant.EPOCH, 0, 0, 0, false);
+    }
+
+    @Test void communityModeratorsCanRemoveAnotherMembersPost() {
+        UUID moderator = UUID.fromString("00000000-0000-4000-8000-000000000004");
+        group.setPostCount(3);
+        when(posts.find(OTHER, moderator)).thenReturn(Optional.of(postBy(AUTHOR)));
+        when(access.lock("trips", moderator)).thenReturn(group);
+        service.delete(OTHER, moderator);
+        verify(access).requireModerator(ID, moderator);
+        verify(posts).delete(OTHER);
+        assertThat(group.getPostCount()).isEqualTo(2);
+    }
+
+    @Test void ordinaryMembersCannotRemoveSomeoneElsesPost() {
+        UUID member = UUID.fromString("00000000-0000-4000-8000-000000000005");
+        when(posts.find(OTHER, member)).thenReturn(Optional.of(postBy(AUTHOR)));
+        when(access.lock("trips", member)).thenReturn(group);
+        doThrow(GroupException.forbidden("Group moderator membership is required")).when(access).requireModerator(ID, member);
+        assertThatThrownBy(() -> service.delete(OTHER, member))
+                .isInstanceOf(GroupException.class)
+                .extracting(ex -> ((GroupException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+        verify(posts, never()).delete(any());
+        verifyNoInteractions(pictures);
+    }
+
     private static final String PLAN_TOKEN = "Abcdefghijklmnopqrstuvwxyz0123456789_-ABCDE";
 
     @Test void aPlanThatIsNotListedOnExploreCannotBeAttached() {

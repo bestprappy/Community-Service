@@ -78,7 +78,9 @@ public class GroupContentService {
         var rows = IntStream.range(0, request.flairs().size()).mapToObj(i -> {
             var r = request.flairs().get(i);
             return GroupFlair.builder().groupId(g.getId()).label(GroupValues.required(r.label(), "label"))
-                    .flairType(r.flairType()).tone(r.tone()).displayOrder(i).build();
+                    .flairType(r.flairType() == null ? "post" : r.flairType())
+                    .tone(r.tone() == null ? FlairColors.DEFAULT_TONE : r.tone())
+                    .colorId(FlairColors.resolve(r.colorId(), r.tone())).displayOrder(i).build();
         }).toList();
         flairs.deleteAllByGroupId(g.getId());
         flairs.saveAll(rows);

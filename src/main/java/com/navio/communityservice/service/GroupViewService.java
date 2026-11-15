@@ -32,6 +32,7 @@ public class GroupViewService {
     }
     private List<FlairResponse> flairViews(List<GroupFlair> rows, String type) {
         return rows.stream().filter(f -> type.equals(f.getFlairType()))
-            .map(f -> new FlairResponse(f.getId(), f.getLabel(), f.getTone(), f.getDisplayOrder())).toList();
+            .map(f -> new FlairResponse(f.getId(), f.getLabel(), f.getTone(),
+                    FlairColors.resolve(f.getColorId(), f.getTone()), f.getDisplayOrder())).toList();
     }
 }
